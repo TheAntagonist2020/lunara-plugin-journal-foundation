@@ -13,10 +13,12 @@ final class Lunara_Journal_Provenance {
             return false;
         }
         $config = Lunara_Journal_Control_Plane::get_active_config();
-        $version = $config['config_version'] ?? '1.0.0';
+        $version = $context['config_version'] ?? ( $config['config_version'] ?? '1.0.0' );
         $provider = $context['provider'] ?? ( $config['dispatch']['provider'] ?? '' );
         $model = $context['model'] ?? ( $config['dispatch']['models'][ $provider ] ?? '' );
-        $now = current_time( 'mysql', true );
+        $prompt_version = $context['prompt_version'] ?? ( 'journal-' . $version );
+        $now = ! empty( $context['generated_at_gmt'] ) ? sanitize_text_field( $context['generated_at_gmt'] ) : current_time( 'mysql', true );
+        $dispatch_version = $context['dispatch_version'] ?? ( defined( 'LUNARA_DISPATCH_VERSION' ) ? LUNARA_DISPATCH_VERSION : '' );
 
         self::set_field( $post_id, 'journal_writer_source', 'dispatch' );
         self::set_field( $post_id, 'journal_dispatch_actor', 'Lunara Dispatch Automation' );
@@ -26,15 +28,18 @@ final class Lunara_Journal_Provenance {
         self::set_field( $post_id, 'journal_last_bridge_client', 'Dispatch PHP Integration' );
         self::set_field( $post_id, 'journal_last_bridge_updated_at', $now );
         self::set_field( $post_id, 'journal_dispatch_ingested_at', $now );
-        self::set_field( $post_id, 'journal_validation_status', 'not_checked' );
+        self::set_field( $post_id, 'journal_validation_status', 'unchecked' );
 
         update_post_meta( $post_id, '_lunara_journal_config_version', sanitize_text_field( $version ) );
-        update_post_meta( $post_id, '_lunara_journal_prompt_version', sanitize_text_field( 'journal-' . $version ) );
+        update_post_meta( $post_id, '_lunara_journal_prompt_version', sanitize_text_field( $prompt_version ) );
         update_post_meta( $post_id, '_lunara_journal_initial_provider', sanitize_text_field( $provider ) );
         update_post_meta( $post_id, '_lunara_journal_initial_model', sanitize_text_field( $model ) );
         update_post_meta( $post_id, '_lunara_journal_generated_at_gmt', $now );
-        update_post_meta( $post_id, '_lunara_dispatch_version', defined( 'LUNARA_DISPATCH_VERSION' ) ? LUNARA_DISPATCH_VERSION : '' );
+        update_post_meta( $post_id, '_lunara_dispatch_version', sanitize_text_field( $dispatch_version ) );
         update_post_meta( $post_id, '_lunara_foundation_version', defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ? LUNARA_JOURNAL_FOUNDATION_VERSION : '' );
+        if ( ! empty( $context['run_id'] ) ) {
+            update_post_meta( $post_id, '_lunara_dispatch_run_id', sanitize_text_field( $context['run_id'] ) );
+        }
 
         $audit = array(
             'action'         => 'dispatch_create',

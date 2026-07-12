@@ -1,11 +1,12 @@
 <?php
 /**
  * Plugin Name: LUNARA Journal Foundation
- * Description: Registers the LUNARA Journal content model, ACF fields, draft-only bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
- * Version: 1.1.1
+ * Description: Registers the LUNARA Journal content model, ACF fields, draft-first scope-gated bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
+ * Version: 1.2.1
  * Author: LUNARA FILM
  * Requires at least: 6.4
  * Requires PHP: 7.4
+ * Requires Plugins: advanced-custom-fields-pro
  * Text Domain: lunara-journal-foundation
  */
 
@@ -14,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ) {
-    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.0' );
+    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.1' );
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-protocol.php';
@@ -25,29 +26,32 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-prompt
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-image-guard.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-validator.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-provenance.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-ingest.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-notion-client.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-notion-sync.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-control-plane.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-fast-desk.php';
 
 final class Lunara_Journal_Foundation {
-    const VERSION             = '1.2.0';
+    const VERSION             = '1.2.1';
     const POST_TYPE           = 'journal';
     const TAX_SECTION         = 'journal_section';
     const TAX_TOPIC           = 'journal_topic';
-    const OPTION_TOKEN        = 'lunara_journal_bridge_token';
+    const TAX_LEGACY_TYPE     = 'journal_type';
     const OPTION_ENABLED      = 'lunara_journal_bridge_enabled';
     const OPTION_ACTIVATED    = 'lunara_journal_foundation_activated';
     const OPTION_AUTO_CONVERT = 'lunara_journal_dispatch_auto_convert';
     const OPTION_CONVERT_MODE = 'lunara_journal_dispatch_convert_mode';
     const OPTION_LAST_SCAN    = 'lunara_journal_dispatch_last_scan';
     const OPTION_ACCESS_PROFILES = 'lunara_journal_bridge_access_profiles';
+    const OPTION_SAFETY_VERSION = 'lunara_journal_foundation_safety_version';
     const META_SKIP_CONVERT   = '_lunara_journal_skip_auto_convert';
     const META_CONVERTED      = '_lunara_journal_converted_from_dispatch';
     const META_IDEMPOTENCY    = '_lunara_dispatch_idempotency_key';
     const CRON_HOOK           = 'lunara_journal_dispatch_scan';
     const REST_NAMESPACE      = 'lunara/v1';
     const REST_TOKEN_HEADER   = 'x-lunara-bridge-token';
+    const MIGRATION_CONFIRM_PHRASE = 'CONVERT JOURNAL DRAFTS';
 
     /**
      * Access profile used for the current REST request.
@@ -108,12 +112,14 @@ final class Lunara_Journal_Foundation {
     }
 
     public static function bootstrap() {
+        add_action( 'init', array( __CLASS__, 'ensure_stabilized_defaults' ), 1 );
         add_action( 'init', array( __CLASS__, 'register_content_model' ), 5 );
         add_action( 'rest_api_init', array( __CLASS__, 'register_rest_routes' ) );
         add_action( 'admin_menu', array( __CLASS__, 'register_admin_page' ) );
-        add_action( 'admin_post_lunara_journal_regenerate_token', array( __CLASS__, 'admin_regenerate_token' ) );
+        add_action( 'admin_notices', array( __CLASS__, 'render_dependency_notice' ) );
         add_action( 'admin_post_lunara_journal_toggle_bridge', array( __CLASS__, 'admin_toggle_bridge' ) );
         add_action( 'admin_post_lunara_journal_dispatch_scan', array( __CLASS__, 'admin_dispatch_scan' ) );
+        add_action( 'admin_post_lunara_journal_dispatch_preview', array( __CLASS__, 'admin_dispatch_preview' ) );
         add_action( 'admin_post_lunara_journal_set_dispatch_automation', array( __CLASS__, 'admin_set_dispatch_automation' ) );
         add_action( 'admin_post_lunara_journal_generate_access_key', array( __CLASS__, 'admin_generate_access_key' ) );
         add_action( 'admin_post_lunara_journal_revoke_access_key', array( __CLASS__, 'admin_revoke_access_key' ) );
@@ -127,24 +133,21 @@ final class Lunara_Journal_Foundation {
     }
 
     public static function activate() {
-        self::ensure_token();
-        self::ensure_access_profiles();
+        self::ensure_stabilized_defaults();
 
         if ( false === get_option( self::OPTION_ENABLED, false ) ) {
             add_option( self::OPTION_ENABLED, '1', '', false );
         }
 
         if ( false === get_option( self::OPTION_AUTO_CONVERT, false ) ) {
-            add_option( self::OPTION_AUTO_CONVERT, '1', '', false );
+            add_option( self::OPTION_AUTO_CONVERT, '0', '', false );
         }
 
         if ( false === get_option( self::OPTION_CONVERT_MODE, false ) ) {
-            add_option( self::OPTION_CONVERT_MODE, 'standard', '', false );
+            add_option( self::OPTION_CONVERT_MODE, 'off', '', false );
         }
 
-        if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
-            wp_schedule_event( time() + 300, 'hourly', self::CRON_HOOK );
-        }
+        self::sync_conversion_cron( self::is_auto_convert_enabled(), self::get_convert_mode() );
 
         self::register_content_model();
         self::create_default_terms();
@@ -152,12 +155,61 @@ final class Lunara_Journal_Foundation {
         update_option( self::OPTION_ACTIVATED, gmdate( 'c' ), false );
     }
 
+    public static function ensure_stabilized_defaults() {
+        if ( self::VERSION === get_option( self::OPTION_SAFETY_VERSION, '' ) ) {
+            return;
+        }
+
+        update_option( self::OPTION_AUTO_CONVERT, '0', false );
+        update_option( self::OPTION_CONVERT_MODE, 'off', false );
+        wp_clear_scheduled_hook( self::CRON_HOOK );
+        self::ensure_access_profiles();
+        update_option( self::OPTION_SAFETY_VERSION, self::VERSION, false );
+    }
+
     public static function deactivate() {
         $timestamp = wp_next_scheduled( self::CRON_HOOK );
         if ( $timestamp ) {
-            wp_unschedule_event( $timestamp, self::CRON_HOOK );
+            wp_clear_scheduled_hook( self::CRON_HOOK );
         }
         flush_rewrite_rules();
+    }
+
+    public static function render_dependency_notice() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        $messages = array();
+        if ( ! function_exists( 'acf_add_local_field_group' ) ) {
+            $messages[] = 'ACF Pro must be active before the Journal editorial fields can be edited.';
+        }
+
+        if ( ! class_exists( 'Lunara_Dispatch_Plugin' ) ) {
+            $messages[] = 'Lunara Dispatch 3.2.0 or newer is required for automated draft collection and Fast Desk runs.';
+        } elseif ( ! defined( 'LUNARA_DISPATCH_VERSION' ) || version_compare( LUNARA_DISPATCH_VERSION, '3.2.0', '<' ) ) {
+            $messages[] = 'The active Lunara Dispatch version is not compatible. Install version 3.2.0 or newer.';
+        } elseif ( ! class_exists( 'Lunara_Dispatch_Control_Plane_Client' ) || ! method_exists( 'Lunara_Dispatch_Control_Plane_Client', 'supports_protocol' ) ) {
+            $messages[] = 'Lunara Dispatch is missing the required Journal protocol compatibility contract.';
+        } elseif ( ! Lunara_Dispatch_Control_Plane_Client::supports_protocol( Lunara_Journal_Protocol::VERSION ) ) {
+            $messages[] = 'Lunara Dispatch does not support Journal protocol ' . Lunara_Journal_Protocol::VERSION . '.';
+        }
+
+        if ( empty( $messages ) ) {
+            return;
+        }
+
+        echo '<div class="notice notice-error"><p><strong>LUNARA Journal Foundation needs attention.</strong></p><ul>';
+        foreach ( $messages as $message ) {
+            echo '<li>' . esc_html( $message ) . '</li>';
+        }
+        echo '</ul></div>';
+    }
+
+    private static function sync_conversion_cron( $enabled, $mode ) {
+        unset( $enabled, $mode );
+        // Version 1.2.1 never bulk-converts from cron. Legacy conversion is preview-gated.
+        wp_clear_scheduled_hook( self::CRON_HOOK );
     }
 
     public static function register_content_model() {
@@ -217,6 +269,28 @@ final class Lunara_Journal_Foundation {
             )
         );
 
+        if ( taxonomy_exists( self::TAX_LEGACY_TYPE ) ) {
+            register_taxonomy_for_object_type( self::TAX_LEGACY_TYPE, self::POST_TYPE );
+        } else {
+            register_taxonomy(
+                self::TAX_LEGACY_TYPE,
+                array( self::POST_TYPE ),
+                array(
+                    'labels'            => array(
+                        'name'          => 'Journal Types',
+                        'singular_name' => 'Journal Type',
+                        'menu_name'     => 'Journal Types',
+                    ),
+                    'public'            => true,
+                    'hierarchical'      => false,
+                    'show_ui'           => true,
+                    'show_admin_column' => false,
+                    'show_in_rest'      => true,
+                    'rewrite'           => array( 'slug' => 'journal-type', 'with_front' => false ),
+                )
+            );
+        }
+
         register_post_type(
             self::POST_TYPE,
             array(
@@ -236,7 +310,7 @@ final class Lunara_Journal_Foundation {
                 'capability_type'     => 'post',
                 'map_meta_cap'        => true,
                 'hierarchical'        => false,
-                'has_archive'         => false,
+                'has_archive'         => 'journal',
                 'rewrite'             => array(
                     'slug'       => 'journal',
                     'with_front' => false,
@@ -253,7 +327,7 @@ final class Lunara_Journal_Foundation {
                     'revisions',
                     'custom-fields',
                 ),
-                'taxonomies'          => array( self::TAX_SECTION, self::TAX_TOPIC ),
+                'taxonomies'          => array( self::TAX_SECTION, self::TAX_TOPIC, self::TAX_LEGACY_TYPE ),
                 'delete_with_user'    => false,
             )
         );
@@ -355,6 +429,7 @@ final class Lunara_Journal_Foundation {
                         'needs_chatgpt_review' => 'Needs ChatGPT Review',
                         'ready_for_editor'     => 'Ready for Editor',
                         'editor_approved'      => 'Editor Approved',
+                        'published'            => 'Published',
                         'held'                 => 'Held',
                         'rejected'             => 'Rejected',
                     ),
@@ -1069,14 +1144,17 @@ final class Lunara_Journal_Foundation {
         self::$current_access_profile = null;
         $required_scope = self::required_scope_for_request( $request );
 
-        if ( is_user_logged_in() && current_user_can( 'edit_posts' ) ) {
+        if ( is_user_logged_in() ) {
+            if ( ! self::wordpress_user_can_access_request( $request, $required_scope ) ) {
+                return new WP_Error( 'lunara_bridge_capability_forbidden', 'You do not have permission to perform this Journal operation.', array( 'status' => 403 ) );
+            }
             $user = wp_get_current_user();
             self::$current_access_profile = array(
                 'id'       => 'wp_user_' . absint( $user->ID ),
                 'label'    => $user->display_name ? $user->display_name : $user->user_login,
                 'actor'    => $user->display_name ? $user->display_name : $user->user_login,
                 'client'   => 'WordPress authenticated user',
-                'scopes'   => array( '*' ),
+                'scopes'   => array( $required_scope ),
                 'auth'     => 'wordpress_user',
                 'last4'    => '',
             );
@@ -1093,21 +1171,6 @@ final class Lunara_Journal_Foundation {
         }
 
         $profile = self::find_access_profile_for_token( $provided );
-
-        if ( ! $profile ) {
-            $legacy = self::ensure_token();
-            if ( $legacy && hash_equals( $legacy, $provided ) ) {
-                $profile = array(
-                    'id'       => 'legacy_single_token',
-                    'label'    => 'Legacy single bridge token',
-                    'actor'    => 'Legacy API integration',
-                    'client'   => 'Legacy bridge token',
-                    'scopes'   => array( '*' ),
-                    'auth'     => 'legacy_token',
-                    'last4'    => substr( $legacy, -4 ),
-                );
-            }
-        }
 
         if ( ! $profile ) {
             return new WP_Error( 'lunara_bridge_forbidden', 'Invalid LUNARA bridge token.', array( 'status' => 403 ) );
@@ -1131,10 +1194,35 @@ final class Lunara_Journal_Foundation {
         if ( ! $provided ) {
             $provided = $request->get_header( 'x_lunara_bridge_token' );
         }
-        if ( ! $provided ) {
-            $provided = $request->get_param( 'bridge_token' );
-        }
         return is_string( $provided ) ? trim( $provided ) : '';
+    }
+
+    private static function wordpress_user_can_access_request( WP_REST_Request $request, $required_scope ) {
+        $post_id = absint( $request->get_param( 'id' ) );
+
+        if ( 'publish' === $required_scope ) {
+            return $post_id > 0
+                && current_user_can( 'edit_post', $post_id )
+                && current_user_can( 'publish_posts' );
+        }
+
+        if ( in_array( $required_scope, array( 'update', 'validate', 'mark_ready', 'audit' ), true ) ) {
+            return $post_id > 0 && current_user_can( 'edit_post', $post_id );
+        }
+
+        if ( 'read' === $required_scope && $post_id > 0 ) {
+            return current_user_can( 'edit_post', $post_id );
+        }
+
+        if ( 'read' === $required_scope ) {
+            return current_user_can( 'edit_others_posts' );
+        }
+
+        if ( in_array( $required_scope, array( 'run_dispatch', 'ingest', 'convert', 'schema' ), true ) ) {
+            return current_user_can( 'manage_options' );
+        }
+
+        return false;
     }
 
     private static function required_scope_for_request( WP_REST_Request $request ) {
@@ -1152,6 +1240,9 @@ final class Lunara_Journal_Foundation {
         }
         if ( false !== strpos( $route, '/journal/desk' ) ) {
             return 'read';
+        }
+        if ( false !== strpos( $route, '/journal/config/' ) ) {
+            return 'schema';
         }
 
         if ( false !== strpos( $route, '/dispatch/ingest' ) ) {
@@ -1200,6 +1291,10 @@ final class Lunara_Journal_Foundation {
                 'version'               => self::VERSION,
                 'post_type_registered'  => post_type_exists( self::POST_TYPE ),
                 'acf_available'         => function_exists( 'acf_add_local_field_group' ),
+                'dispatch_version'      => defined( 'LUNARA_DISPATCH_VERSION' ) ? LUNARA_DISPATCH_VERSION : '',
+                'dispatch_protocol_compatible' => class_exists( 'Lunara_Dispatch_Control_Plane_Client' )
+                    && method_exists( 'Lunara_Dispatch_Control_Plane_Client', 'supports_protocol' )
+                    && Lunara_Dispatch_Control_Plane_Client::supports_protocol( Lunara_Journal_Protocol::VERSION ),
                 'bridge_enabled'        => '1' === get_option( self::OPTION_ENABLED, '1' ),
                 'auto_convert'          => self::is_auto_convert_enabled(),
                 'convert_mode'          => self::get_convert_mode(),
@@ -1421,7 +1516,8 @@ final class Lunara_Journal_Foundation {
                     'available_scopes'   => self::available_access_scopes(),
                     'configured_profiles'=> self::public_access_profiles(),
                 ),
-                'refused_operations' => array( 'publish', 'future', 'delete', 'trash', 'status_change' ),
+                'refused_operations' => array( 'future', 'delete', 'trash', 'status_change_outside_dedicated_publish_action' ),
+                'publish_disabled_by_default' => true,
             )
         );
     }
@@ -1433,44 +1529,25 @@ final class Lunara_Journal_Foundation {
             $body = array();
         }
 
-        $payload = self::normalize_dispatch_payload( $body );
-        if ( is_wp_error( $payload ) ) {
-            return $payload;
+        $result = Lunara_Journal_Ingest::ingest( $body, false );
+        if ( is_wp_error( $result ) ) {
+            return $result;
         }
 
-        if ( ! empty( $payload['idempotency_key'] ) ) {
-            $existing = self::find_journal_by_idempotency_key( $payload['idempotency_key'] );
-            if ( $existing ) {
-                return rest_ensure_response(
-                    array(
-                        'created'      => false,
-                        'deduplicated' => true,
-                        'post'         => self::prepare_post_for_response( $existing, true ),
-                        'validation'   => self::validate_journal_post( $existing ),
-                    )
-                );
-            }
-        }
-
-        $created = self::create_journal_from_dispatch_payload( $payload, 'rest_ingest' );
-        if ( is_wp_error( $created ) ) {
-            return $created;
-        }
-
-        return rest_ensure_response(
-            array(
-                'created'    => true,
-                'post'       => self::prepare_post_for_response( get_post( $created ), true ),
-                'validation' => self::validate_journal_post( get_post( $created ) ),
-                'message'    => 'Created Journal draft. Post status was forced to draft.',
-            )
-        );
+        $post = get_post( $result['post_id'] );
+        return rest_ensure_response( array(
+            'created'      => ! empty( $result['created'] ),
+            'deduplicated' => empty( $result['created'] ),
+            'post'         => self::prepare_post_for_response( $post, true ),
+            'validation'   => self::validate_journal_post( $post ),
+            'message'      => ! empty( $result['created'] ) ? 'Created Journal draft. Post status was forced to draft.' : 'Reused existing Journal draft for this idempotency key.',
+        ) );
     }
 
     public static function rest_convert_candidates( WP_REST_Request $request ) {
         $body  = $request->get_json_params();
         $limit = 25;
-        $mode  = null;
+        $mode  = 'standard';
 
         if ( is_array( $body ) ) {
             if ( isset( $body['limit'] ) ) {
@@ -1481,209 +1558,93 @@ final class Lunara_Journal_Foundation {
             }
         }
 
-        $result = self::scan_and_convert_dispatch_posts( $limit, $mode );
+        $preview = self::preview_dispatch_candidates( $limit, $mode );
+        $confirmation = is_array( $body ) && isset( $body['confirm_conversion'] ) ? sanitize_text_field( (string) $body['confirm_conversion'] ) : '';
+        if ( self::MIGRATION_CONFIRM_PHRASE !== $confirmation ) {
+            $preview['preview'] = true;
+            $preview['confirmation_required'] = self::MIGRATION_CONFIRM_PHRASE;
+            return rest_ensure_response( $preview );
+        }
+
+        $requested_ids = is_array( $body ) && isset( $body['candidate_ids'] ) && is_array( $body['candidate_ids'] )
+            ? array_values( array_unique( array_filter( array_map( 'absint', $body['candidate_ids'] ) ) ) )
+            : array();
+        $preview_ids = wp_list_pluck( $preview['candidates'], 'id' );
+        if ( empty( $requested_ids ) || array_diff( $requested_ids, $preview_ids ) ) {
+            return new WP_Error( 'lunara_conversion_preview_mismatch', 'Conversion requires candidate_ids from the current read-only preview.', array( 'status' => 409, 'preview' => $preview ) );
+        }
+
+        $result = self::convert_dispatch_candidate_ids( $requested_ids, $mode, 'rest_confirmed' );
         return rest_ensure_response( $result );
-    }
-
-    private static function normalize_dispatch_payload( array $body ) {
-        if ( isset( $body['status'] ) || isset( $body['post_status'] ) ) {
-            return new WP_Error( 'lunara_ingest_no_status', 'Dispatch ingest always creates drafts and does not accept post status.', array( 'status' => 400 ) );
-        }
-
-        $title   = isset( $body['title'] ) ? wp_strip_all_tags( (string) $body['title'] ) : '';
-        $content = isset( $body['content'] ) ? self::sanitize_allowed_post_html( (string) $body['content'] ) : '';
-        $excerpt = isset( $body['excerpt'] ) ? sanitize_textarea_field( (string) $body['excerpt'] ) : '';
-
-        if ( '' === trim( $title ) && '' === trim( wp_strip_all_tags( $content ) ) ) {
-            return new WP_Error( 'lunara_ingest_empty', 'Dispatch ingest requires title or content.', array( 'status' => 400 ) );
-        }
-
-        $source_items = array();
-        if ( isset( $body['source_items'] ) && is_array( $body['source_items'] ) ) {
-            $source_items = self::sanitize_acf_value( 'journal_source_items', $body['source_items'] );
-        } elseif ( isset( $body['source_url'] ) ) {
-            $source_items[] = array(
-                'source_headline'     => isset( $body['source_headline'] ) ? sanitize_text_field( (string) $body['source_headline'] ) : $title,
-                'source_publication'  => isset( $body['source_publication'] ) ? sanitize_text_field( (string) $body['source_publication'] ) : '',
-                'source_author'       => isset( $body['source_author'] ) ? sanitize_text_field( (string) $body['source_author'] ) : '',
-                'source_url'          => esc_url_raw( (string) $body['source_url'] ),
-                'source_published_at' => isset( $body['source_published_at'] ) ? sanitize_text_field( (string) $body['source_published_at'] ) : '',
-                'source_reliability'  => isset( $body['source_reliability'] ) ? sanitize_key( (string) $body['source_reliability'] ) : 'unknown',
-                'source_excerpt'      => isset( $body['source_excerpt'] ) ? sanitize_textarea_field( (string) $body['source_excerpt'] ) : '',
-            );
-        } else {
-            $urls = self::extract_urls_from_html( $content );
-            foreach ( $urls as $url ) {
-                $source_items[] = array(
-                    'source_headline'     => $title,
-                    'source_publication'  => '',
-                    'source_author'       => '',
-                    'source_url'          => $url,
-                    'source_published_at' => '',
-                    'source_reliability'  => 'unknown',
-                    'source_excerpt'      => '',
-                );
-            }
-        }
-
-        $acf = array();
-        if ( isset( $body['acf'] ) && is_array( $body['acf'] ) ) {
-            foreach ( $body['acf'] as $field_name => $value ) {
-                if ( in_array( $field_name, self::allowed_acf_fields(), true ) ) {
-                    $acf[ $field_name ] = self::sanitize_acf_value( $field_name, $value );
-                }
-            }
-        }
-
-        if ( ! isset( $acf['journal_source_items'] ) ) {
-            $acf['journal_source_items'] = $source_items;
-        }
-
-        if ( empty( $acf['journal_original_dispatch_copy'] ) ) {
-            $acf['journal_original_dispatch_copy'] = $content;
-        }
-
-        if ( empty( $acf['journal_deck'] ) ) {
-            $acf['journal_deck'] = $excerpt ? $excerpt : self::make_plaintext_excerpt( $content, 260 );
-        }
-
-        if ( empty( $acf['journal_seo_description'] ) ) {
-            $acf['journal_seo_description'] = self::make_plaintext_excerpt( $excerpt ? $excerpt : $content, 155 );
-        }
-
-        $section = '';
-        if ( isset( $body['section'] ) ) {
-            $section = sanitize_text_field( (string) $body['section'] );
-        } elseif ( isset( $acf['journal_item_type'] ) ) {
-            $section = self::section_name_from_item_type( (string) $acf['journal_item_type'] );
-        }
-
-        $topics = array();
-        if ( isset( $body['topics'] ) && is_array( $body['topics'] ) ) {
-            foreach ( $body['topics'] as $topic ) {
-                $topic = sanitize_text_field( (string) $topic );
-                if ( $topic ) {
-                    $topics[] = $topic;
-                }
-            }
-        }
-
-        return array(
-            'title'           => $title,
-            'content'         => $content,
-            'excerpt'         => $excerpt,
-            'slug'            => isset( $body['slug'] ) ? sanitize_title( (string) $body['slug'] ) : '',
-            'featured_media'  => isset( $body['featured_media'] ) ? absint( $body['featured_media'] ) : 0,
-            'idempotency_key' => isset( $body['idempotency_key'] ) ? sanitize_text_field( (string) $body['idempotency_key'] ) : '',
-            'section'         => $section,
-            'topics'          => array_values( array_unique( $topics ) ),
-            'acf'             => $acf,
-        );
-    }
-
-    private static function create_journal_from_dispatch_payload( array $payload, $source ) {
-        $insert = array(
-            'post_type'    => self::POST_TYPE,
-            'post_status'  => 'draft',
-            'post_title'   => $payload['title'],
-            'post_content' => $payload['content'],
-            'post_excerpt' => $payload['excerpt'],
-        );
-
-        if ( ! empty( $payload['slug'] ) ) {
-            $insert['post_name'] = $payload['slug'];
-        }
-
-        $post_id = wp_insert_post( wp_slash( $insert ), true );
-        if ( is_wp_error( $post_id ) ) {
-            return $post_id;
-        }
-
-        if ( ! empty( $payload['featured_media'] ) && get_post( $payload['featured_media'] ) ) {
-            set_post_thumbnail( $post_id, $payload['featured_media'] );
-        }
-
-        if ( ! empty( $payload['idempotency_key'] ) ) {
-            update_post_meta( $post_id, self::META_IDEMPOTENCY, $payload['idempotency_key'] );
-        }
-
-        foreach ( $payload['acf'] as $field_name => $value ) {
-            self::update_acf_value( $field_name, $value, $post_id );
-        }
-
-        $actor_context = self::current_actor_context();
-        self::update_acf_value( 'journal_writer_source', 'dispatch', $post_id );
-        self::update_acf_value( 'journal_dispatch_actor', $actor_context['actor'], $post_id );
-
-        self::update_acf_value( 'journal_status', 'needs_chatgpt_review', $post_id );
-        self::update_acf_value( 'journal_validation_status', 'unchecked', $post_id );
-        self::update_acf_value( 'journal_ready_for_review', 0, $post_id );
-        self::update_acf_value( 'journal_dispatch_ingested_at', current_time( 'mysql' ), $post_id );
-        self::update_acf_value( 'journal_dispatch_conversion_notes', 'Created from Dispatch ingest endpoint: ' . sanitize_key( $source ), $post_id );
-        self::set_journal_terms_from_payload( $post_id, $payload );
-        self::disable_jetpack_publicize_for_post( $post_id );
-
-        $report = self::validate_journal_post( get_post( $post_id ) );
-        self::update_acf_value( 'journal_validation_status', $report['status'], $post_id );
-        self::update_acf_value( 'journal_validation_report', wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ), $post_id );
-        self::update_bridge_attribution_fields( $post_id, 'ingest' );
-        self::append_bridge_log( $post_id, 'ingest', array( 'source' => sanitize_key( $source ) ) );
-
-        return $post_id;
-    }
-
-    private static function find_journal_by_idempotency_key( $key ) {
-        $key = sanitize_text_field( (string) $key );
-        if ( '' === $key ) {
-            return null;
-        }
-
-        $found = get_posts(
-            array(
-                'post_type'      => self::POST_TYPE,
-                'post_status'    => array( 'draft', 'pending', 'private', 'auto-draft' ),
-                'posts_per_page' => 1,
-                'fields'         => 'ids',
-                'meta_key'       => self::META_IDEMPOTENCY,
-                'meta_value'     => $key,
-                'no_found_rows'  => true,
-            )
-        );
-
-        return $found ? get_post( absint( $found[0] ) ) : null;
     }
 
     private static function set_journal_terms_from_payload( $post_id, array $payload ) {
         $section_name = ! empty( $payload['section'] ) ? $payload['section'] : 'Signal';
         $section_id   = self::ensure_term_id( $section_name, self::TAX_SECTION );
-
-        if ( $section_id ) {
-            wp_set_object_terms( $post_id, array( $section_id ), self::TAX_SECTION, false );
-            self::update_acf_value( 'journal_primary_section', $section_id, $post_id );
-
-            if ( empty( self::get_acf_value( 'journal_item_type', $post_id ) ) ) {
-                self::update_acf_value( 'journal_item_type', self::item_type_from_section_name( $section_name ), $post_id );
-            }
+        if ( is_wp_error( $section_id ) ) {
+            return $section_id;
         }
 
+        $section_set = wp_set_object_terms( $post_id, array( $section_id ), self::TAX_SECTION, false );
+        if ( is_wp_error( $section_set ) ) {
+            return $section_set;
+        }
+        self::update_acf_value( 'journal_primary_section', $section_id, $post_id );
+        if ( ! self::readback_values_match( $section_id, self::get_acf_value( 'journal_primary_section', $post_id ) ) ) {
+            return new WP_Error( 'lunara_section_readback_failed', 'Journal primary section field could not be verified.' );
+        }
+        if ( empty( self::get_acf_value( 'journal_item_type', $post_id ) ) ) {
+            self::update_acf_value( 'journal_item_type', self::item_type_from_section_name( $section_name ), $post_id );
+        }
+        $assigned_sections = wp_get_object_terms( $post_id, self::TAX_SECTION, array( 'fields' => 'ids' ) );
+        if ( is_wp_error( $assigned_sections ) || ! in_array( (int) $section_id, array_map( 'intval', (array) $assigned_sections ), true ) ) {
+            return new WP_Error( 'lunara_section_term_readback_failed', 'Journal section taxonomy assignment could not be verified.' );
+        }
+
+        $legacy_type_id = self::ensure_term_id( $section_name, self::TAX_LEGACY_TYPE );
+        if ( is_wp_error( $legacy_type_id ) ) {
+            return $legacy_type_id;
+        }
+        $legacy_set = wp_set_object_terms( $post_id, array( $legacy_type_id ), self::TAX_LEGACY_TYPE, false );
+        if ( is_wp_error( $legacy_set ) ) {
+            return $legacy_set;
+        }
+        $assigned_legacy = wp_get_object_terms( $post_id, self::TAX_LEGACY_TYPE, array( 'fields' => 'ids' ) );
+        if ( is_wp_error( $assigned_legacy ) || ! in_array( (int) $legacy_type_id, array_map( 'intval', (array) $assigned_legacy ), true ) ) {
+            return new WP_Error( 'lunara_legacy_term_readback_failed', 'Legacy Journal taxonomy assignment could not be verified.' );
+        }
+
+        $topic_ids = array();
         if ( ! empty( $payload['topics'] ) ) {
-            $topic_ids = array();
             foreach ( $payload['topics'] as $topic ) {
                 $topic_id = self::ensure_term_id( $topic, self::TAX_TOPIC );
-                if ( $topic_id ) {
-                    $topic_ids[] = $topic_id;
+                if ( is_wp_error( $topic_id ) ) {
+                    return $topic_id;
                 }
+                $topic_ids[] = $topic_id;
             }
             if ( $topic_ids ) {
-                wp_set_object_terms( $post_id, $topic_ids, self::TAX_TOPIC, false );
+                $topics_set = wp_set_object_terms( $post_id, $topic_ids, self::TAX_TOPIC, false );
+                if ( is_wp_error( $topics_set ) ) {
+                    return $topics_set;
+                }
+                $assigned_topics = wp_get_object_terms( $post_id, self::TAX_TOPIC, array( 'fields' => 'ids' ) );
+                if ( is_wp_error( $assigned_topics ) || array_diff( array_map( 'intval', $topic_ids ), array_map( 'intval', (array) $assigned_topics ) ) ) {
+                    return new WP_Error( 'lunara_topic_term_readback_failed', 'Journal topic taxonomy assignments could not be verified.' );
+                }
             }
         }
+        return array(
+            'section_id'     => (int) $section_id,
+            'legacy_type_id' => (int) $legacy_type_id,
+            'topic_ids'      => array_map( 'intval', $topic_ids ),
+        );
     }
 
     private static function ensure_term_id( $name, $taxonomy ) {
         $name = sanitize_text_field( (string) $name );
         if ( '' === $name || ! taxonomy_exists( $taxonomy ) ) {
-            return 0;
+            return new WP_Error( 'lunara_taxonomy_unavailable', 'Required Journal taxonomy is unavailable: ' . $taxonomy );
         }
 
         $existing = term_exists( $name, $taxonomy );
@@ -1693,7 +1654,7 @@ final class Lunara_Journal_Foundation {
 
         $created = wp_insert_term( $name, $taxonomy );
         if ( is_wp_error( $created ) ) {
-            return 0;
+            return $created;
         }
 
         return absint( $created['term_id'] );
@@ -1755,6 +1716,7 @@ final class Lunara_Journal_Foundation {
             'terms'          => array(
                 self::TAX_SECTION => wp_get_post_terms( $post->ID, self::TAX_SECTION, array( 'fields' => 'names' ) ),
                 self::TAX_TOPIC   => wp_get_post_terms( $post->ID, self::TAX_TOPIC, array( 'fields' => 'names' ) ),
+                self::TAX_LEGACY_TYPE => wp_get_post_terms( $post->ID, self::TAX_LEGACY_TYPE, array( 'fields' => 'names' ) ),
             ),
             'acf'            => $acf,
         );
@@ -1891,6 +1853,37 @@ final class Lunara_Journal_Foundation {
         return update_post_meta( $post_id, $field_name, $value );
     }
 
+    private static function verify_acf_fields( $post_id, array $expected, array $field_names ) {
+        foreach ( array_values( array_unique( $field_names ) ) as $field_name ) {
+            if ( ! array_key_exists( $field_name, $expected ) ) {
+                return new WP_Error( 'lunara_missing_required_field', 'Required Journal field was not supplied: ' . $field_name );
+            }
+            $actual = self::get_acf_value( $field_name, $post_id );
+            if ( ! self::readback_values_match( $expected[ $field_name ], $actual ) ) {
+                return new WP_Error( 'lunara_field_readback_failed', 'Journal field readback failed: ' . $field_name );
+            }
+        }
+        return true;
+    }
+
+    private static function readback_values_match( $expected, $actual ) {
+        if ( is_array( $expected ) ) {
+            if ( ! is_array( $actual ) || count( $expected ) !== count( $actual ) ) {
+                return false;
+            }
+            foreach ( $expected as $key => $value ) {
+                if ( ! array_key_exists( $key, $actual ) || ! self::readback_values_match( $value, $actual[ $key ] ) ) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if ( ( null === $expected || false === $expected || '' === $expected ) && ( null === $actual || false === $actual || '' === $actual ) ) {
+            return true;
+        }
+        return (string) $expected === (string) $actual;
+    }
+
     private static function sanitize_acf_value( $field_name, $value ) {
         if ( 'journal_source_items' === $field_name && is_array( $value ) ) {
             $items = array();
@@ -2018,7 +2011,7 @@ final class Lunara_Journal_Foundation {
                 'label'       => 'ChatGPT Editorial Bridge',
                 'actor'       => 'ChatGPT with Dalton approval',
                 'client'      => 'ChatGPT Action',
-                'scopes'      => array( 'read', 'update', 'validate', 'mark_ready', 'run_dispatch', 'publish', 'audit', 'schema' ),
+                'scopes'      => array( 'read', 'update', 'validate', 'mark_ready', 'run_dispatch', 'audit', 'schema' ),
                 'active'      => true,
                 'token_hash'  => '',
                 'last4'       => '',
@@ -2070,6 +2063,9 @@ final class Lunara_Journal_Foundation {
                 $default_scopes = isset( $profile['scopes'] ) && is_array( $profile['scopes'] ) ? $profile['scopes'] : array();
                 $existing_scopes = isset( $existing['scopes'] ) && is_array( $existing['scopes'] ) ? $existing['scopes'] : array();
                 $merged_scopes = self::sanitize_scope_list( array_merge( $default_scopes, $existing_scopes ) );
+                if ( 'chatgpt_editor' === $id ) {
+                    $merged_scopes = array_values( array_diff( $merged_scopes, array( 'publish' ) ) );
+                }
                 if ( $merged_scopes !== self::sanitize_scope_list( $existing_scopes ) ) {
                     $changed = true;
                 }
@@ -2183,23 +2179,13 @@ final class Lunara_Journal_Foundation {
         return true;
     }
 
-    private static function ensure_token() {
-        $token = get_option( self::OPTION_TOKEN, '' );
-        if ( ! is_string( $token ) || strlen( $token ) < 32 ) {
-            $token = wp_generate_password( 48, false, false );
-            update_option( self::OPTION_TOKEN, $token, false );
-        }
-        return $token;
-    }
-
-
     private static function is_auto_convert_enabled() {
-        return '1' === get_option( self::OPTION_AUTO_CONVERT, '1' );
+        return '1' === get_option( self::OPTION_AUTO_CONVERT, '0' );
     }
 
     private static function get_convert_mode() {
-        $mode = sanitize_key( (string) get_option( self::OPTION_CONVERT_MODE, 'standard' ) );
-        return in_array( $mode, array( 'off', 'standard', 'aggressive' ), true ) ? $mode : 'standard';
+        $mode = sanitize_key( (string) get_option( self::OPTION_CONVERT_MODE, 'off' ) );
+        return in_array( $mode, array( 'off', 'standard', 'aggressive' ), true ) ? $mode : 'off';
     }
 
     public static function maybe_convert_dispatch_post_on_save( $post_id, $post, $update ) {
@@ -2233,11 +2219,22 @@ final class Lunara_Journal_Foundation {
         if ( ! self::is_auto_convert_enabled() || 'off' === self::get_convert_mode() ) {
             return;
         }
-        self::scan_and_convert_dispatch_posts( 25, self::get_convert_mode() );
+        $preview = self::preview_dispatch_candidates( 25, self::get_convert_mode() );
+        update_option( self::OPTION_LAST_SCAN, 'Read-only preview: ' . absint( $preview['candidate_count'] ) . ' candidate(s) at ' . current_time( 'mysql' ), false );
     }
 
     private static function scan_and_convert_dispatch_posts( $limit = 25, $mode = null ) {
         $mode = $mode ? sanitize_key( (string) $mode ) : self::get_convert_mode();
+        if ( ! in_array( $mode, array( 'standard', 'aggressive' ), true ) ) {
+            $mode = 'standard';
+        }
+
+        $preview = self::preview_dispatch_candidates( $limit, $mode );
+        return self::convert_dispatch_candidate_ids( wp_list_pluck( $preview['candidates'], 'id' ), $mode, 'scan_' . $mode );
+    }
+
+    private static function preview_dispatch_candidates( $limit = 25, $mode = 'standard' ) {
+        $mode = sanitize_key( (string) $mode );
         if ( ! in_array( $mode, array( 'standard', 'aggressive' ), true ) ) {
             $mode = 'standard';
         }
@@ -2259,28 +2256,51 @@ final class Lunara_Journal_Foundation {
             )
         );
 
-        $converted = array();
-        $skipped   = array();
+        $candidates = array();
 
         foreach ( $query->posts as $post ) {
             if ( self::is_dispatch_candidate( $post->ID, $post, $mode ) ) {
-                $result = self::convert_dispatch_post_to_journal( $post->ID, 'scan_' . $mode );
-                if ( is_wp_error( $result ) ) {
-                    $skipped[] = array( 'id' => $post->ID, 'reason' => $result->get_error_message() );
-                } else {
-                    $converted[] = self::prepare_post_for_response( get_post( $post->ID ), false );
-                }
+                $candidates[] = array(
+                    'id'        => (int) $post->ID,
+                    'title'     => get_the_title( $post ),
+                    'status'    => $post->post_status,
+                    'edit_link' => admin_url( 'post.php?post=' . absint( $post->ID ) . '&action=edit' ),
+                );
+            }
+        }
+
+        return array(
+            'mode'            => $mode,
+            'candidate_count' => count( $candidates ),
+            'candidates'      => $candidates,
+            'scanned'         => count( $query->posts ),
+            'generated_at'    => current_time( 'mysql' ),
+        );
+    }
+
+    private static function convert_dispatch_candidate_ids( array $candidate_ids, $mode, $source ) {
+        $converted = array();
+        $skipped = array();
+        foreach ( array_values( array_unique( array_filter( array_map( 'absint', $candidate_ids ) ) ) ) as $post_id ) {
+            $post = get_post( $post_id );
+            if ( ! $post || ! self::is_dispatch_candidate( $post_id, $post, $mode ) ) {
+                $skipped[] = array( 'id' => $post_id, 'reason' => 'Candidate no longer qualifies for conversion.' );
+                continue;
+            }
+            $result = self::convert_dispatch_post_to_journal( $post_id, $source );
+            if ( is_wp_error( $result ) ) {
+                $skipped[] = array( 'id' => $post_id, 'reason' => $result->get_error_message() );
+            } else {
+                $converted[] = self::prepare_post_for_response( get_post( $post_id ), false );
             }
         }
 
         update_option( self::OPTION_LAST_SCAN, current_time( 'mysql' ), false );
-
         return array(
             'mode'            => $mode,
             'converted_count' => count( $converted ),
             'converted'       => $converted,
             'skipped'         => $skipped,
-            'scanned'         => count( $query->posts ),
             'last_scan'       => current_time( 'mysql' ),
         );
     }
@@ -2355,10 +2375,6 @@ final class Lunara_Journal_Foundation {
         }
 
         $legacy_categories = get_the_category( $post_id );
-        update_post_meta( $post_id, '_lunara_legacy_post_type', 'post' );
-        update_post_meta( $post_id, '_lunara_legacy_categories', wp_list_pluck( $legacy_categories, 'slug' ) );
-        update_post_meta( $post_id, self::META_CONVERTED, current_time( 'mysql' ) );
-
         $update = array(
             'ID'        => $post_id,
             'post_type' => self::POST_TYPE,
@@ -2370,21 +2386,89 @@ final class Lunara_Journal_Foundation {
 
         clean_post_cache( $post_id );
         $journal = get_post( $post_id );
+        if ( ! $journal || self::POST_TYPE !== $journal->post_type ) {
+            return new WP_Error( 'lunara_conversion_readback_failed', 'Converted Journal entry could not be verified after the post type update.' );
+        }
+
+        update_post_meta( $post_id, '_lunara_legacy_post_type', 'post' );
+        $legacy_category_slugs = wp_list_pluck( $legacy_categories, 'slug' );
+        update_post_meta( $post_id, '_lunara_legacy_categories', $legacy_category_slugs );
+        if ( 'post' !== get_post_meta( $post_id, '_lunara_legacy_post_type', true ) || ! self::readback_values_match( $legacy_category_slugs, get_post_meta( $post_id, '_lunara_legacy_categories', true ) ) ) {
+            return self::fail_conversion( $post_id, 'Legacy post metadata could not be verified.' );
+        }
 
         $payload = self::payload_from_legacy_post( $journal, $legacy_categories );
         foreach ( $payload['acf'] as $field_name => $value ) {
             self::update_acf_value( $field_name, $value, $post_id );
         }
-        self::set_journal_terms_from_payload( $post_id, $payload );
+        $required_fields = array( 'journal_deck', 'journal_status', 'journal_item_type', 'journal_original_dispatch_copy', 'journal_seo_description', 'journal_ready_for_review', 'journal_dispatch_conversion_notes' );
+        if ( ! empty( $payload['acf']['journal_source_items'] ) ) {
+            $required_fields[] = 'journal_source_items';
+        }
+        $acf_readback = self::verify_acf_fields( $post_id, $payload['acf'], $required_fields );
+        if ( is_wp_error( $acf_readback ) ) {
+            return self::fail_conversion( $post_id, $acf_readback->get_error_message() );
+        }
+
+        $term_result = self::set_journal_terms_from_payload( $post_id, $payload );
+        if ( is_wp_error( $term_result ) ) {
+            return self::fail_conversion( $post_id, $term_result->get_error_message() );
+        }
         self::disable_jetpack_publicize_for_post( $post_id );
 
         $report = self::validate_journal_post( get_post( $post_id ) );
         self::update_acf_value( 'journal_validation_status', $report['status'], $post_id );
-        self::update_acf_value( 'journal_validation_report', wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ), $post_id );
+        $validation_report = wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+        self::update_acf_value( 'journal_validation_report', $validation_report, $post_id );
+        $validation_readback = self::verify_acf_fields( $post_id, array(
+            'journal_validation_status' => $report['status'],
+            'journal_validation_report' => $validation_report,
+        ), array( 'journal_validation_status', 'journal_validation_report' ) );
+        if ( is_wp_error( $validation_readback ) ) {
+            return self::fail_conversion( $post_id, $validation_readback->get_error_message() );
+        }
+        clean_post_cache( $post_id );
+        $journal = get_post( $post_id );
+        if ( ! $journal || self::POST_TYPE !== $journal->post_type || ! in_array( $journal->post_status, array( 'draft', 'pending', 'private', 'auto-draft' ), true ) ) {
+            return self::fail_conversion( $post_id, 'Final Journal draft readback failed.' );
+        }
+
+        $converted_at = current_time( 'mysql', true );
+        update_post_meta( $post_id, self::META_CONVERTED, $converted_at );
+        if ( $converted_at !== get_post_meta( $post_id, self::META_CONVERTED, true ) ) {
+            return self::fail_conversion( $post_id, 'The conversion completion marker could not be verified.' );
+        }
+        delete_post_meta( $post_id, '_lunara_journal_conversion_quarantined' );
         self::update_bridge_attribution_fields( $post_id, 'auto-convert' );
         self::append_bridge_log( $post_id, 'auto-convert', array( 'source' => sanitize_key( $source ) ) );
 
         return $post_id;
+    }
+
+    private static function fail_conversion( $post_id, $message ) {
+        delete_post_meta( $post_id, self::META_CONVERTED );
+        $quarantine = array(
+            'message'        => sanitize_text_field( (string) $message ),
+            'quarantined_at' => current_time( 'mysql', true ),
+        );
+        update_post_meta( $post_id, '_lunara_journal_conversion_quarantined', $quarantine );
+
+        $rollback = wp_update_post( array( 'ID' => $post_id, 'post_type' => 'post' ), true );
+        clean_post_cache( $post_id );
+        $readback = get_post( $post_id );
+        $rolled_back = ! is_wp_error( $rollback ) && $readback && 'post' === $readback->post_type;
+
+        return new WP_Error(
+            'lunara_conversion_incomplete',
+            $rolled_back
+                ? 'Conversion verification failed and the post was restored for a safe retry: ' . $message
+                : 'Conversion verification failed. The unpublished Journal entry was quarantined for manual repair: ' . $message,
+            array(
+                'post_id'     => (int) $post_id,
+                'retryable'   => $rolled_back,
+                'quarantined' => ! $rolled_back,
+            )
+        );
     }
 
     private static function payload_from_legacy_post( WP_Post $post, array $legacy_categories ) {
@@ -2557,13 +2641,13 @@ final class Lunara_Journal_Foundation {
             return;
         }
 
-        $token        = self::ensure_token();
         $enabled      = '1' === get_option( self::OPTION_ENABLED, '1' );
         $base         = esc_url( rest_url( self::REST_NAMESPACE . '/dispatch' ) );
         $auto_convert = self::is_auto_convert_enabled();
         $convert_mode = self::get_convert_mode();
         $last_scan    = get_option( self::OPTION_LAST_SCAN, 'Never' );
         $profiles     = self::public_access_profiles();
+        $conversion_preview = get_transient( self::migration_preview_transient_key() );
         $new_key      = get_transient( 'lunara_journal_generated_key_' . get_current_user_id() );
         if ( $new_key ) {
             delete_transient( 'lunara_journal_generated_key_' . get_current_user_id() );
@@ -2571,7 +2655,7 @@ final class Lunara_Journal_Foundation {
         ?>
         <div class="wrap">
             <h1>LUNARA Journal Bridge</h1>
-            <p>This plugin registers the <strong>Journal</strong> custom post type, ACF editorial fields, and draft-only REST endpoints for Dispatch/ChatGPT review.</p>
+            <p>This plugin registers the <strong>Journal</strong> custom post type, ACF editorial fields, and draft-first scope-gated REST endpoints for Dispatch/ChatGPT review.</p>
 
             <?php if ( is_array( $new_key ) && ! empty( $new_key['token'] ) ) : ?>
                 <div class="notice notice-success" style="padding:12px 16px;max-width:900px;">
@@ -2586,19 +2670,12 @@ final class Lunara_Journal_Foundation {
                     <tr><th scope="row">Bridge enabled</th><td><?php echo $enabled ? 'Yes' : 'No'; ?></td></tr>
                     <tr><th scope="row">REST base</th><td><code><?php echo esc_html( $base ); ?></code></td></tr>
                     <tr><th scope="row">Token header</th><td><code>X-Lunara-Bridge-Token</code></td></tr>
-                    <tr><th scope="row">Legacy single token</th><td><input type="text" readonly value="<?php echo esc_attr( $token ); ?>" style="width: 520px; max-width: 100%;" onclick="this.select();" /> <p class="description">Kept for backward compatibility. Use scoped access profiles below for known authorship.</p></td></tr>
                     <tr><th scope="row">Dispatch auto-convert</th><td><?php echo $auto_convert ? 'Enabled' : 'Disabled'; ?> / <?php echo esc_html( $convert_mode ); ?></td></tr>
                     <tr><th scope="row">Last Dispatch scan</th><td><?php echo esc_html( (string) $last_scan ); ?></td></tr>
                 </tbody>
             </table>
 
-            <p><strong>Guardrail:</strong> the bridge refuses publish, scheduled, trash, and delete operations. It only reads and updates Journal entries that are draft, pending, private, or auto-draft.</p>
-
-            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:12px;">
-                <?php wp_nonce_field( 'lunara_journal_regenerate_token' ); ?>
-                <input type="hidden" name="action" value="lunara_journal_regenerate_token" />
-                <?php submit_button( 'Regenerate Token', 'secondary', 'submit', false ); ?>
-            </form>
+            <p><strong>Guardrail:</strong> publishing is disabled by default and unavailable to the standard ChatGPT editor key. A separately authorized publish action still requires an editable draft, publish capability, deterministic validation, and explicit per-entry confirmation. Scheduling, trash, and delete operations remain unavailable.</p>
 
             <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
                 <?php wp_nonce_field( 'lunara_journal_toggle_bridge' ); ?>
@@ -2656,7 +2733,7 @@ final class Lunara_Journal_Foundation {
             <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:12px 0;">
                 <?php wp_nonce_field( 'lunara_journal_set_dispatch_automation' ); ?>
                 <input type="hidden" name="action" value="lunara_journal_set_dispatch_automation" />
-                <label><input type="checkbox" name="auto_convert" value="1" <?php checked( $auto_convert ); ?> /> Auto-convert Dispatch-created drafts into Journal CPT drafts</label>
+                <label><input type="checkbox" name="auto_convert" value="1" <?php checked( $auto_convert ); ?> /> Auto-convert qualifying Dispatch-created drafts when they are saved</label>
                 <select name="convert_mode">
                     <option value="standard" <?php selected( $convert_mode, 'standard' ); ?>>Standard</option>
                     <option value="aggressive" <?php selected( $convert_mode, 'aggressive' ); ?>>Aggressive</option>
@@ -2664,12 +2741,35 @@ final class Lunara_Journal_Foundation {
                 </select>
                 <?php submit_button( 'Save Automation Settings', 'secondary', 'submit', false ); ?>
             </form>
+            <h3>Legacy draft migration</h3>
+            <p>Previewing is read-only. Conversion remains off until a preview is generated and the exact confirmation phrase is entered.</p>
             <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:12px 0;">
-                <?php wp_nonce_field( 'lunara_journal_dispatch_scan' ); ?>
-                <input type="hidden" name="action" value="lunara_journal_dispatch_scan" />
+                <?php wp_nonce_field( 'lunara_journal_dispatch_preview' ); ?>
+                <input type="hidden" name="action" value="lunara_journal_dispatch_preview" />
                 <input type="hidden" name="limit" value="100" />
-                <?php submit_button( 'Scan and Convert Existing Dispatch Drafts', 'primary', 'submit', false ); ?>
+                <label for="lunara-preview-mode">Preview mode</label>
+                <select id="lunara-preview-mode" name="preview_mode">
+                    <option value="standard">Standard</option>
+                    <option value="aggressive">Aggressive</option>
+                </select>
+                <?php submit_button( 'Preview Legacy Draft Candidates', 'secondary', 'submit', false ); ?>
             </form>
+            <?php if ( is_array( $conversion_preview ) ) : ?>
+                <p><strong><?php echo esc_html( (string) count( $conversion_preview['candidate_ids'] ) ); ?> candidate(s)</strong> were found in the read-only <?php echo esc_html( $conversion_preview['mode'] ); ?> preview generated <?php echo esc_html( $conversion_preview['generated_at'] ); ?>.</p>
+                <?php if ( ! empty( $conversion_preview['candidates'] ) ) : ?>
+                    <table class="widefat striped" style="max-width:900px"><thead><tr><th>ID</th><th>Title</th><th>Status</th></tr></thead><tbody>
+                    <?php foreach ( $conversion_preview['candidates'] as $candidate ) : ?>
+                        <tr><td><?php echo esc_html( (string) $candidate['id'] ); ?></td><td><a href="<?php echo esc_url( $candidate['edit_link'] ); ?>"><?php echo esc_html( $candidate['title'] ); ?></a></td><td><?php echo esc_html( $candidate['status'] ); ?></td></tr>
+                    <?php endforeach; ?>
+                    </tbody></table>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="max-width:900px;margin:16px 0;">
+                        <?php wp_nonce_field( 'lunara_journal_dispatch_scan' ); ?>
+                        <input type="hidden" name="action" value="lunara_journal_dispatch_scan" />
+                        <p><label>Type <code><?php echo esc_html( self::MIGRATION_CONFIRM_PHRASE ); ?></code> to convert only these previewed IDs.<br /><input type="text" class="regular-text" name="confirm_conversion" autocomplete="off" /></label></p>
+                        <?php submit_button( 'Convert Previewed Drafts', 'primary', 'submit', false ); ?>
+                    </form>
+                <?php endif; ?>
+            <?php endif; ?>
 
             <h2>Endpoints</h2>
             <ul>
@@ -2689,16 +2789,6 @@ final class Lunara_Journal_Foundation {
         <?php
     }
 
-    public static function admin_regenerate_token() {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( esc_html__( 'Permission denied.', 'lunara-journal-foundation' ) );
-        }
-        check_admin_referer( 'lunara_journal_regenerate_token' );
-        update_option( self::OPTION_TOKEN, wp_generate_password( 48, false, false ), false );
-        wp_safe_redirect( admin_url( 'edit.php?post_type=' . self::POST_TYPE . '&page=lunara-journal-bridge&updated=1' ) );
-        exit;
-    }
-
     public static function admin_toggle_bridge() {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Permission denied.', 'lunara-journal-foundation' ) );
@@ -2711,13 +2801,36 @@ final class Lunara_Journal_Foundation {
     }
 
 
+    private static function migration_preview_transient_key() {
+        return 'lunara_journal_conversion_preview_' . get_current_user_id();
+    }
+
+    public static function admin_dispatch_preview() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Permission denied.', 'lunara-journal-foundation' ) );
+        }
+        check_admin_referer( 'lunara_journal_dispatch_preview' );
+        $limit = isset( $_POST['limit'] ) ? min( 100, max( 1, absint( $_POST['limit'] ) ) ) : 100;
+        $mode = isset( $_POST['preview_mode'] ) ? sanitize_key( wp_unslash( $_POST['preview_mode'] ) ) : 'standard';
+        $preview = self::preview_dispatch_candidates( $limit, $mode );
+        $preview['candidate_ids'] = wp_list_pluck( $preview['candidates'], 'id' );
+        set_transient( self::migration_preview_transient_key(), $preview, 15 * MINUTE_IN_SECONDS );
+        wp_safe_redirect( admin_url( 'edit.php?post_type=' . self::POST_TYPE . '&page=lunara-journal-bridge&preview=1' ) );
+        exit;
+    }
+
     public static function admin_dispatch_scan() {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Permission denied.', 'lunara-journal-foundation' ) );
         }
         check_admin_referer( 'lunara_journal_dispatch_scan' );
-        $limit  = isset( $_POST['limit'] ) ? min( 100, max( 1, absint( $_POST['limit'] ) ) ) : 100;
-        $result = self::scan_and_convert_dispatch_posts( $limit, self::get_convert_mode() );
+        $confirmation = isset( $_POST['confirm_conversion'] ) ? sanitize_text_field( wp_unslash( $_POST['confirm_conversion'] ) ) : '';
+        $preview = get_transient( self::migration_preview_transient_key() );
+        if ( self::MIGRATION_CONFIRM_PHRASE !== $confirmation || ! is_array( $preview ) || empty( $preview['candidate_ids'] ) ) {
+            wp_die( esc_html__( 'A current migration preview and the exact confirmation phrase are required.', 'lunara-journal-foundation' ) );
+        }
+        $result = self::convert_dispatch_candidate_ids( $preview['candidate_ids'], $preview['mode'], 'admin_confirmed_preview' );
+        delete_transient( self::migration_preview_transient_key() );
         set_transient( 'lunara_journal_last_scan_result', $result, 10 * MINUTE_IN_SECONDS );
         wp_safe_redirect( admin_url( 'edit.php?post_type=' . self::POST_TYPE . '&page=lunara-journal-bridge&scan=1&converted=' . absint( $result['converted_count'] ) ) );
         exit;
@@ -2768,8 +2881,12 @@ final class Lunara_Journal_Foundation {
         if ( ! in_array( $mode, array( 'off', 'standard', 'aggressive' ), true ) ) {
             $mode = 'standard';
         }
+        if ( 'off' === $mode ) {
+            $enabled = '0';
+        }
         update_option( self::OPTION_AUTO_CONVERT, $enabled, false );
         update_option( self::OPTION_CONVERT_MODE, $mode, false );
+        self::sync_conversion_cron( '1' === $enabled, $mode );
         wp_safe_redirect( admin_url( 'edit.php?post_type=' . self::POST_TYPE . '&page=lunara-journal-bridge&updated=1' ) );
         exit;
     }
@@ -2798,6 +2915,7 @@ final class Lunara_Journal_Foundation {
 }
 
 Lunara_Journal_Foundation::bootstrap();
+Lunara_Journal_Ingest::bootstrap();
 Lunara_Journal_Control_Plane::bootstrap();
 Lunara_Journal_Fast_Desk::bootstrap();
 register_activation_hook( __FILE__, array( 'Lunara_Journal_Foundation', 'activate' ) );

@@ -1,10 +1,10 @@
 # LUNARA Journal Control Plane — Design Specification
 
-**Date:** 2026-07-11  
-**Status:** Proposed for implementation  
-**Owner:** Dalton Johnson / LUNARA FILM  
-**Runtime authority:** WordPress  
-**Human operations mirror:** Notion  
+**Date:** 2026-07-11
+**Status:** Proposed for implementation
+**Owner:** Dalton Johnson / LUNARA FILM
+**Runtime authority:** WordPress
+**Human operations mirror:** Notion
 
 ## 1. Purpose
 
@@ -252,7 +252,7 @@ Internal Journal workflow values:
 - `needs_chatgpt_review`
 - `chatgpt_reviewed`
 - `validation_failed`
-- `ready_for_dalton`
+- `ready_for_editor`
 - `editor_approved`
 - `held`
 - `rejected`
@@ -407,7 +407,7 @@ ChatGPT and Notion receive no activation endpoint.
 5. On approval, ChatGPT updates only allowlisted draft fields.
 6. Foundation records attribution and revision provenance.
 7. ChatGPT invokes deterministic validation.
-8. Passing drafts may be marked `ready_for_dalton`; failing drafts become `validation_failed`.
+8. Passing drafts may be marked `ready_for_editor`; failing drafts become `validation_failed`.
 9. WordPress post status remains `draft`.
 
 ### 8.3 Publication
@@ -630,4 +630,3 @@ The project is complete when:
 - Rebuilding the Dispatch feed and generation engine from scratch
 - General site-wide AI governance outside the Journal
 - Multi-user editorial approvals beyond Dalton's administrator approval
-

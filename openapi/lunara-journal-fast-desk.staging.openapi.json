@@ -1,0 +1,137 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LUNARA Fast Journal Desk - Staging",
+    "description": "Staging-only private editorial desk for LUNARA Journal. Replace the stagingHost server variable before importing this schema. Publishing is disabled by default and the standard ChatGPT editor key has no publish scope.",
+    "version": "1.2.1"
+  },
+  "servers": [
+    {
+      "url": "https://{stagingHost}/wp-json/lunara/v1",
+      "description": "WordPress.com staging only",
+      "variables": {
+        "stagingHost": {
+          "default": "replace-me.wpcomstaging.com",
+          "description": "Replace with the exact WordPress.com staging hostname before importing the Action schema."
+        }
+      }
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "LunaraBridgeToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Lunara-Bridge-Token"
+      }
+    },
+    "schemas": {
+      "DraftUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "description": "Approved replacement title." },
+          "content": { "type": "string", "description": "Approved replacement body as publishable WordPress HTML." },
+          "excerpt": { "type": "string", "description": "Approved replacement excerpt." },
+          "acf": { "type": "object", "description": "Only allowlisted Journal ACF fields are accepted.", "additionalProperties": true }
+        }
+      }
+    }
+  },
+  "security": [
+    { "LunaraBridgeToken": [] }
+  ],
+  "paths": {
+    "/journal/desk": {
+      "get": {
+        "operationId": "openJournalDesk",
+        "summary": "Open the consolidated Journal Desk",
+        "parameters": [
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 } },
+          { "name": "refresh", "in": "query", "required": false, "schema": { "type": "boolean", "default": false } }
+        ],
+        "responses": { "200": { "description": "Journal Desk snapshot." } }
+      }
+    },
+    "/journal/desk/drafts/{id}": {
+      "get": {
+        "operationId": "openJournalWorkspace",
+        "summary": "Open one complete Journal editing workspace",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Complete editing workspace." } }
+      }
+    },
+    "/journal/desk/drafts/{id}/save-validate": {
+      "post": {
+        "operationId": "saveAndValidateJournalDraft",
+        "summary": "Save an approved revision and validate it",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DraftUpdate" } } }
+        },
+        "responses": { "200": { "description": "Saved draft and validation result." } }
+      }
+    },
+    "/journal/desk/run-dispatch": {
+      "post": {
+        "operationId": "runDispatchNow",
+        "summary": "Queue a manual Dispatch run",
+        "responses": { "200": { "description": "Dispatch queue state." } }
+      }
+    },
+    "/dispatch/drafts/{id}/mark-ready": {
+      "post": {
+        "operationId": "markJournalDraftReady",
+        "summary": "Mark a validated draft ready for editor review",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Ready-state result." } }
+      }
+    },
+    "/dispatch/drafts/{id}/audit": {
+      "get": {
+        "operationId": "getJournalDraftAudit",
+        "summary": "Retrieve the audit trail",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Draft audit trail." } }
+      }
+    },
+    "/journal/desk/drafts/{id}/publish": {
+      "post": {
+        "operationId": "publishJournalDraftNow",
+        "summary": "Publish one validated Journal draft when separately authorized",
+        "description": "Disabled by default and unavailable to the standard ChatGPT editor key. Requires an explicitly publish-scoped credential, enabled Control Plane publishing, validation, and exact per-entry confirmation.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": { "confirm_publish_now": { "type": "boolean" } },
+                "required": [ "confirm_publish_now" ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Published." },
+          "400": { "description": "Confirmation missing." },
+          "403": { "description": "Credential or Control Plane publishing permission missing." },
+          "409": { "description": "Validation failed." }
+        }
+      }
+    }
+  }
+}
