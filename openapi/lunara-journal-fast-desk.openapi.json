@@ -1,0 +1,249 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LUNARA Fast Journal Desk",
+    "description": "Private editorial desk for LUNARA Journal with consolidated operations and deterministic featured-image presence and quality diagnostics. Supports an explicit single-entry publish action when GPT publishing is enabled in the Journal Control Plane and Dalton explicitly instructs the GPT to publish. Never schedules, bulk publishes, deletes, trashes, changes post status outside the dedicated publish action, or activates configuration.",
+    "version": "1.1.1"
+  },
+  "servers": [
+    {
+      "url": "https://lunarafilm.com/wp-json/lunara/v1"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "LunaraBridgeToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Lunara-Bridge-Token"
+      }
+    },
+    "schemas": {
+      "DraftUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Approved replacement title."
+          },
+          "content": {
+            "type": "string",
+            "description": "Approved replacement body as publishable WordPress HTML."
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "Approved replacement excerpt."
+          },
+          "acf": {
+            "type": "object",
+            "description": "Only allowlisted Journal ACF fields are accepted.",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "LunaraBridgeToken": []
+    }
+  ],
+  "paths": {
+    "/journal/desk": {
+      "get": {
+        "operationId": "openJournalDesk",
+        "summary": "Open the consolidated Journal Desk",
+        "description": "Returns identity, health, active Control Plane summary, Dispatch state, newest drafts, aggregate image-status counts, per-draft featured-image diagnostics, attention items, and the recommended next draft in one compact call. Use this instead of separate identity, health, configuration, and draft-list calls.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 8
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Bypass the 60-second desk cache only when the user explicitly asks for a fresh refresh."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Journal Desk snapshot including image_counts and compact image diagnostics for each draft."
+          }
+        }
+      }
+    },
+    "/journal/desk/drafts/{id}": {
+      "get": {
+        "operationId": "openJournalWorkspace",
+        "summary": "Open one complete Journal editing workspace",
+        "description": "Returns the selected draft, full featured-image diagnostics (attachment, MIME, URL, dimensions, aspect ratio, alt text, errors and warnings), required ACF/source/provenance fields, current deterministic validation, and active compact editorial configuration.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete editing workspace including full featured-image diagnostics."
+          }
+        }
+      }
+    },
+    "/journal/desk/drafts/{id}/save-validate": {
+      "post": {
+        "operationId": "saveAndValidateJournalDraft",
+        "summary": "Save the approved revision and validate it in one request",
+        "description": "Use only after Dalton approves the exact proposed revision. Saves allowlisted draft fields, records attribution, preserves draft status, and runs deterministic validation including the featured-image hard gate and quality warnings.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved draft plus validation result and featured-image diagnostics."
+          }
+        }
+      }
+    },
+    "/journal/desk/run-dispatch": {
+      "post": {
+        "operationId": "runDispatchNow",
+        "summary": "Queue a manual Dispatch run",
+        "description": "Queues the feed/AI/image run asynchronously inside WordPress and returns immediately. It does not wait for generation to finish and cannot publish anything.",
+        "responses": {
+          "200": {
+            "description": "Dispatch queue state"
+          }
+        }
+      }
+    },
+    "/dispatch/drafts/{id}/mark-ready": {
+      "post": {
+        "operationId": "markJournalDraftReady",
+        "summary": "Mark a validated draft ready for Dalton",
+        "description": "Runs validation again, including the featured-image hard gate, sets the internal ready-for-editor state only when validation passes, and preserves WordPress draft status. Never publishes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ready-state result"
+          }
+        }
+      }
+    },
+    "/dispatch/drafts/{id}/audit": {
+      "get": {
+        "operationId": "getJournalDraftAudit",
+        "summary": "Retrieve the audit trail only when requested",
+        "description": "Use only for an explicit provenance or troubleshooting request. The normal workspace intentionally omits full audit history for speed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Draft audit trail"
+          }
+        }
+      }
+    },
+    "/journal/desk/drafts/{id}/publish": {
+      "post": {
+        "operationId": "publishJournalDraftNow",
+        "summary": "Publish a single validated Journal draft immediately",
+        "description": "Publishes exactly one Journal entry immediately when GPT publishing is enabled, the entry passes validation including the featured-image guard, and Dalton has explicitly instructed the GPT to publish now. Scheduling, bulk publishing, and silent publishing are not allowed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm_publish_now": {
+                    "type": "boolean",
+                    "description": "Must be true only after Dalton explicitly instructs the GPT to publish this exact entry now."
+                  }
+                },
+                "required": [
+                  "confirm_publish_now"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Journal entry was published successfully."
+          },
+          "400": {
+            "description": "Explicit confirmation was missing."
+          },
+          "403": {
+            "description": "GPT publishing is disabled for the active Control Plane configuration."
+          },
+          "409": {
+            "description": "The Journal entry failed validation and cannot be published."
+          }
+        }
+      }
+    }
+  }
+}
