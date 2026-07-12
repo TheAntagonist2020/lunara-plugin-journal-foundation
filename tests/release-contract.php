@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.1.
+ * Executable stabilization contracts for Journal Foundation 1.2.2.
  *
  * Run: php tests/release-contract.php
  */
@@ -52,11 +52,12 @@ $staging_openapi = contract_file( $root, 'openapi/lunara-journal-fast-desk.stagi
 foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridge_openapi, $staging_openapi ) as $release_surface ) {
     contract_not_contains( $release_surface, '1.1.1', 'Stale 1.1.1 release identity remains.' );
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
+    contract_not_contains( $release_surface, '1.2.1', 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.1', 'Plugin header must report 1.2.1.' );
-contract_contains( $main, "const VERSION             = '1.2.1';", 'Runtime Foundation version must be 1.2.1.' );
-contract_contains( $protocol, "const VERSION        = '1.2.1';", 'Protocol version must be 1.2.1.' );
-contract_contains( $protocol, "const SCHEMA_VERSION = '1.2.1';", 'Schema version must be 1.2.1.' );
+contract_contains( $main, 'Version: 1.2.2', 'Plugin header must report 1.2.2.' );
+contract_contains( $main, "const VERSION             = '1.2.2';", 'Runtime Foundation version must be 1.2.2.' );
+contract_contains( $protocol, "const VERSION        = '1.2.2';", 'Protocol version must be 1.2.2.' );
+contract_contains( $protocol, "const SCHEMA_VERSION = '1.2.2';", 'Schema version must be 1.2.2.' );
 
 // The theme relies on a real Journal archive and the legacy taxonomy remains queryable.
 contract_contains( $main, "'has_archive'         => 'journal'", 'Journal CPT must own the /journal archive.' );
@@ -94,7 +95,7 @@ $activation_end = strpos( $main, 'public static function deactivate()', $activat
 $activation = substr( $main, $activation_start, $activation_end - $activation_start );
 contract_not_contains( $activation, 'wp_schedule_event', 'Activation must not schedule a content-conversion cron.' );
 contract_not_contains( $activation, 'convert_dispatch_post_to_journal', 'Activation must not mutate content.' );
-if ( preg_match( "/'chatgpt_editor'\s*=>\s*array\((.*?)\n\s*\),\n\s*'dispatch_ingest'/s", $main, $chatgpt_profile ) ) {
+if ( preg_match( "/'chatgpt_editor'\s*=>\s*array\((.*?)\R\s*\),\R\s*'dispatch_ingest'/s", $main, $chatgpt_profile ) ) {
     contract_not_contains( $chatgpt_profile[1], "'publish'", 'Default ChatGPT editor profile must not include publish scope.' );
 } else {
     contract_assert( false, 'Unable to locate default ChatGPT editor profile.' );
@@ -140,6 +141,10 @@ contract_contains( $ingest, '$wpdb->delete', 'Lock release must use an owner-val
 contract_not_contains( $ingest, 'delete_option( $option_name )', 'Stale takeover must not use a delete-then-add race.' );
 contract_contains( $ingest, '} finally {', 'Every acquired ingest lock must release through finally.' );
 contract_contains( $ingest, 'hash_equals', 'Lock release must verify owner identity.' );
+contract_contains( $ingest, 'self::is_boolean_field( $field_name )', 'Ingest boolean normalization must be scoped by field name.' );
+contract_contains( $ingest, "array( 'journal_ready_for_review', 'journal_bridge_locked' )", 'Ingest must identify the exact ACF true_false fields.' );
+contract_contains( $main, 'self::is_boolean_acf_field( $field_name )', 'Conversion boolean normalization must be scoped by field name.' );
+contract_contains( $main, "array( 'journal_ready_for_review', 'journal_bridge_locked' )", 'Conversion must identify the exact ACF true_false fields.' );
 
 // Secrets prefer deployment configuration and are recursively removed from exposed config.
 contract_contains( $notion_client, "defined( 'LUNARA_NOTION_TOKEN' )", 'Notion token must support wp-config constant precedence.' );

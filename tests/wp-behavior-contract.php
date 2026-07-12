@@ -207,7 +207,10 @@ function get_post_meta( $post_id, $key = '', $single = false ) {
 }
 function delete_post_meta( $post_id, $key ) { unset( $GLOBALS['wp_meta'][ $post_id ][ $key ] ); return true; }
 function update_field( $field, $value, $post_id ) { return update_post_meta( $post_id, $field, $value ); }
-function get_field( $field, $post_id ) { return get_post_meta( $post_id, $field, true ); }
+function get_field( $field, $post_id ) {
+    $value = get_post_meta( $post_id, $field, true );
+    return 'journal_ready_for_review' === $field && 0 === $value ? false : $value;
+}
 
 function taxonomy_exists( $taxonomy ) { return in_array( $taxonomy, array( 'journal_section', 'journal_topic', 'journal_type' ), true ); }
 function term_exists( $name, $taxonomy ) {
@@ -255,6 +258,18 @@ require dirname( __DIR__ ) . '/lunara-journal-foundation.php';
 
 behavior_assert( Lunara_Journal_Notion_Client::has_credentials(), 'Notion credentials must accept the constant-first token path.' );
 
+$ingest_match = new ReflectionMethod( 'Lunara_Journal_Ingest', 'matches' );
+$ingest_match->setAccessible( true );
+behavior_assert( true === $ingest_match->invoke( null, 0, false, 'journal_ready_for_review' ), 'Ingest readback must accept ACF false for an unchecked true_false field.' );
+behavior_assert( true === $ingest_match->invoke( null, 1, true, 'journal_bridge_locked' ), 'Ingest readback must accept ACF true for a checked true_false field.' );
+behavior_assert( false === $ingest_match->invoke( null, 0, false, 'journal_primary_year' ), 'Ingest readback must keep non-boolean fields strict.' );
+
+$foundation_match = new ReflectionMethod( 'Lunara_Journal_Foundation', 'readback_values_match' );
+$foundation_match->setAccessible( true );
+behavior_assert( true === $foundation_match->invoke( null, 0, false, 'journal_ready_for_review' ), 'Conversion readback must accept ACF false for an unchecked true_false field.' );
+behavior_assert( true === $foundation_match->invoke( null, 1, true, 'journal_bridge_locked' ), 'Conversion readback must accept ACF true for a checked true_false field.' );
+behavior_assert( false === $foundation_match->invoke( null, 0, false, 'journal_primary_year' ), 'Conversion readback must keep non-boolean fields strict.' );
+
 $public_config = Lunara_Journal_Control_Plane::public_config( array(
     'dispatch' => array( 'max_tokens' => 4096, 'credentials' => array( 'api_key' => 'remove-me', 'model' => 'keep-me' ) ),
     'client_secret' => 'remove-me-too',
@@ -290,6 +305,7 @@ behavior_assert( 'draft' === get_post_status( $first['post_id'] ), 'Ingest must 
 behavior_assert( 'A canonical deck that also supplies the excerpt.' === get_post( $first['post_id'] )->post_excerpt, 'Deck must populate the canonical excerpt.' );
 behavior_assert( 'A canonical deck that also supplies the excerpt.' === get_field( 'journal_deck', $first['post_id'] ), 'Deck field must persist.' );
 behavior_assert( 'A Verified Film' === get_field( 'journal_primary_title', $first['post_id'] ), 'Primary title classification must persist.' );
+behavior_assert( false === get_field( 'journal_ready_for_review', $first['post_id'] ), 'Behavior harness must mirror ACF true_false readback for an unchecked field.' );
 behavior_assert( 'run-42' === get_post_meta( $first['post_id'], '_lunara_dispatch_run_id', true ), 'Dispatch run provenance must persist.' );
 
 $second = apply_filters( 'lunara_journal_foundation_ingest', null, $payload );

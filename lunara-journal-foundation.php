@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LUNARA Journal Foundation
  * Description: Registers the LUNARA Journal content model, ACF fields, draft-first scope-gated bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
- * Version: 1.2.1
+ * Version: 1.2.2
  * Author: LUNARA FILM
  * Requires at least: 6.4
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ) {
-    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.1' );
+    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.2' );
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-protocol.php';
@@ -33,7 +33,7 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-contro
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-fast-desk.php';
 
 final class Lunara_Journal_Foundation {
-    const VERSION             = '1.2.1';
+    const VERSION             = '1.2.2';
     const POST_TYPE           = 'journal';
     const TAX_SECTION         = 'journal_section';
     const TAX_TOPIC           = 'journal_topic';
@@ -208,7 +208,7 @@ final class Lunara_Journal_Foundation {
 
     private static function sync_conversion_cron( $enabled, $mode ) {
         unset( $enabled, $mode );
-        // Version 1.2.1 never bulk-converts from cron. Legacy conversion is preview-gated.
+        // Version 1.2.2 never bulk-converts from cron. Legacy conversion is preview-gated.
         wp_clear_scheduled_hook( self::CRON_HOOK );
     }
 
@@ -1859,29 +1859,39 @@ final class Lunara_Journal_Foundation {
                 return new WP_Error( 'lunara_missing_required_field', 'Required Journal field was not supplied: ' . $field_name );
             }
             $actual = self::get_acf_value( $field_name, $post_id );
-            if ( ! self::readback_values_match( $expected[ $field_name ], $actual ) ) {
+            if ( ! self::readback_values_match( $expected[ $field_name ], $actual, $field_name ) ) {
                 return new WP_Error( 'lunara_field_readback_failed', 'Journal field readback failed: ' . $field_name );
             }
         }
         return true;
     }
 
-    private static function readback_values_match( $expected, $actual ) {
+    private static function readback_values_match( $expected, $actual, $field_name = '' ) {
         if ( is_array( $expected ) ) {
             if ( ! is_array( $actual ) || count( $expected ) !== count( $actual ) ) {
                 return false;
             }
             foreach ( $expected as $key => $value ) {
-                if ( ! array_key_exists( $key, $actual ) || ! self::readback_values_match( $value, $actual[ $key ] ) ) {
+                if ( ! array_key_exists( $key, $actual ) || ! self::readback_values_match( $value, $actual[ $key ], $field_name ) ) {
                     return false;
                 }
             }
+            return true;
+        }
+        if ( self::is_boolean_acf_field( $field_name ) && in_array( $expected, array( false, 0, '0' ), true ) && in_array( $actual, array( false, 0, '0' ), true ) ) {
+            return true;
+        }
+        if ( self::is_boolean_acf_field( $field_name ) && in_array( $expected, array( true, 1, '1' ), true ) && in_array( $actual, array( true, 1, '1' ), true ) ) {
             return true;
         }
         if ( ( null === $expected || false === $expected || '' === $expected ) && ( null === $actual || false === $actual || '' === $actual ) ) {
             return true;
         }
         return (string) $expected === (string) $actual;
+    }
+
+    private static function is_boolean_acf_field( $field_name ) {
+        return in_array( $field_name, array( 'journal_ready_for_review', 'journal_bridge_locked' ), true );
     }
 
     private static function sanitize_acf_value( $field_name, $value ) {

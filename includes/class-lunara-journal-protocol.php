@@ -7,8 +7,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Lunara_Journal_Protocol {
-    const VERSION        = '1.2.1';
-    const SCHEMA_VERSION = '1.2.1';
+    const VERSION        = '1.2.2';
+    const SCHEMA_VERSION = '1.2.2';
 
     public static function is_compatible( $version ) {
         if ( ! is_string( $version ) || ! preg_match( '/^(\d+)\.(\d+)\.(\d+)$/', $version, $matches ) ) {
