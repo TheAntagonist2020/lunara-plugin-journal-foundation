@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.1
+Version: 1.2.2
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -96,9 +96,9 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 
 ## Install order
 
-1. Replace the existing LUNARA Journal Foundation with version 1.2.1.
+1. Replace the existing LUNARA Journal Foundation with version 1.2.2.
 2. Replace Lunara Dispatch Automation with version 3.2.0.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Replace the GPT instructions with the supplied v1.2.1 instructions.
+5. Replace the GPT instructions with the supplied v1.2.2 instructions.
 6. Keep the existing ChatGPT Editorial Bridge custom header. Reissue scoped keys if the installation still uses the retired legacy wildcard token.

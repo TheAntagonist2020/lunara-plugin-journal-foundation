@@ -450,29 +450,39 @@ final class Lunara_Journal_Ingest {
 
     private static function verify_fields( $post_id, array $expected, array $field_names ) {
         foreach ( array_unique( $field_names ) as $field_name ) {
-            if ( ! array_key_exists( $field_name, $expected ) || ! self::matches( $expected[ $field_name ], self::get_field( $post_id, $field_name ) ) ) {
+            if ( ! array_key_exists( $field_name, $expected ) || ! self::matches( $expected[ $field_name ], self::get_field( $post_id, $field_name ), $field_name ) ) {
                 return new WP_Error( 'lunara_field_readback_failed', 'Journal field readback failed: ' . $field_name );
             }
         }
         return true;
     }
 
-    private static function matches( $expected, $actual ) {
+    private static function matches( $expected, $actual, $field_name = '' ) {
         if ( is_array( $expected ) ) {
             if ( ! is_array( $actual ) || count( $expected ) !== count( $actual ) ) {
                 return false;
             }
             foreach ( $expected as $key => $value ) {
-                if ( ! array_key_exists( $key, $actual ) || ! self::matches( $value, $actual[ $key ] ) ) {
+                if ( ! array_key_exists( $key, $actual ) || ! self::matches( $value, $actual[ $key ], $field_name ) ) {
                     return false;
                 }
             }
+            return true;
+        }
+        if ( self::is_boolean_field( $field_name ) && in_array( $expected, array( false, 0, '0' ), true ) && in_array( $actual, array( false, 0, '0' ), true ) ) {
+            return true;
+        }
+        if ( self::is_boolean_field( $field_name ) && in_array( $expected, array( true, 1, '1' ), true ) && in_array( $actual, array( true, 1, '1' ), true ) ) {
             return true;
         }
         if ( ( null === $expected || false === $expected || '' === $expected ) && ( null === $actual || false === $actual || '' === $actual ) ) {
             return true;
         }
         return (string) $expected === (string) $actual;
+    }
+
+    private static function is_boolean_field( $field_name ) {
+        return in_array( $field_name, array( 'journal_ready_for_review', 'journal_bridge_locked' ), true );
     }
 
     private static function quarantine( $post_id, $message ) {
