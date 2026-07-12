@@ -13,7 +13,7 @@ final class Lunara_Journal_Notion_Client {
     const OPTION_ERROR   = 'lunara_journal_notion_last_error';
 
     public static function has_credentials() {
-        return '' !== trim( (string) get_option( self::OPTION_TOKEN, '' ) ) && '' !== trim( (string) get_option( self::OPTION_PAGE_ID, '' ) );
+        return '' !== self::token() && '' !== trim( (string) get_option( self::OPTION_PAGE_ID, '' ) );
     }
 
     public static function sync_config( array $config ) {
@@ -22,7 +22,7 @@ final class Lunara_Journal_Notion_Client {
             return new WP_Error( 'lunara_notion_missing_credentials', 'Notion credentials are not configured.' );
         }
 
-        $token = trim( (string) get_option( self::OPTION_TOKEN, '' ) );
+        $token = self::token();
         $page_id = trim( (string) get_option( self::OPTION_PAGE_ID, '' ) );
         $payload = array(
             'children' => self::build_blocks( $config ),
@@ -52,6 +52,22 @@ final class Lunara_Journal_Notion_Client {
         update_option( self::OPTION_LAST, current_time( 'mysql', true ), false );
         update_option( self::OPTION_ERROR, '', false );
         return true;
+    }
+
+    private static function token() {
+        if ( defined( 'LUNARA_NOTION_TOKEN' ) ) {
+            $constant = trim( (string) constant( 'LUNARA_NOTION_TOKEN' ) );
+            if ( '' !== $constant ) {
+                return $constant;
+            }
+        }
+
+        $environment = getenv( 'LUNARA_NOTION_TOKEN' );
+        if ( is_string( $environment ) && '' !== trim( $environment ) ) {
+            return trim( $environment );
+        }
+
+        return trim( (string) get_option( self::OPTION_TOKEN, '' ) );
     }
 
     public static function build_blocks( array $config ) {

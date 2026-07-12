@@ -198,6 +198,9 @@ final class Lunara_Journal_Fast_Desk {
         if ( is_wp_error( $post ) ) {
             return $post;
         }
+        if ( is_user_logged_in() && ( ! current_user_can( 'edit_post', $post->ID ) || ! current_user_can( 'publish_posts' ) ) ) {
+            return new WP_Error( 'lunara_publish_capability_forbidden', 'You do not have permission to publish this Journal entry.', array( 'status' => 403 ) );
+        }
 
         $config = Lunara_Journal_Control_Plane::get_active_config();
         if ( empty( $config['chatgpt']['may_publish'] ) ) {
@@ -226,6 +229,20 @@ final class Lunara_Journal_Fast_Desk {
             return $result;
         }
 
+        clean_post_cache( $post->ID );
+        $published = get_post( $post->ID );
+        if ( ! $published || 'publish' !== get_post_status( $published ) ) {
+            return new WP_Error(
+                'lunara_publish_readback_failed',
+                'WordPress did not persist this Journal entry as published. No published provenance was recorded.',
+                array(
+                    'status'      => 409,
+                    'post_id'     => $post->ID,
+                    'post_status' => $published ? get_post_status( $published ) : '',
+                )
+            );
+        }
+
         $actor = Lunara_Journal_Foundation::current_bridge_actor_context();
         update_post_meta( $post->ID, '_lunara_journal_published_at_gmt', current_time( 'mysql', true ) );
         update_post_meta( $post->ID, '_lunara_journal_published_by_actor', isset( $actor['actor'] ) ? $actor['actor'] : 'ChatGPT with Dalton approval' );
@@ -245,8 +262,6 @@ final class Lunara_Journal_Fast_Desk {
         Lunara_Journal_Foundation::update_bridge_attribution( $post->ID, 'publish' );
 
         self::invalidate_cache();
-        clean_post_cache( $post->ID );
-        $published = get_post( $post->ID );
 
         return rest_ensure_response( array(
             'published'               => true,

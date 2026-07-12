@@ -104,7 +104,7 @@ final class Lunara_Journal_Config_Schema {
             'chatgpt' => array(
                 'live_configuration_required' => true,
                 'may_activate_configuration'  => false,
-                'may_publish'                 => true,
+                'may_publish'                 => false,
                 'may_delete'                  => false,
                 'allowed_actions'             => array( 'read', 'update', 'validate', 'mark_ready', 'run_dispatch', 'publish', 'audit', 'schema' ),
             ),
@@ -121,12 +121,12 @@ final class Lunara_Journal_Config_Schema {
                     'needs_chatgpt_review',
                     'ai_reviewed',
                     'validation_failed',
-                    'ready_for_dalton',
+                    'ready_for_editor',
                     'published',
                     'held',
                     'rejected',
                 ),
-                'ready_state' => 'ready_for_dalton',
+                'ready_state' => 'ready_for_editor',
             ),
         );
     }

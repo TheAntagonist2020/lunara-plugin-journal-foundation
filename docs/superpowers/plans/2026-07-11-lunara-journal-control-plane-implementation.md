@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Preserve the public page at `/journal/`; the `journal` CPT must continue using `has_archive => false`.
+- Preserve the public archive at `/journal/`; the `journal` CPT owns that archive with `has_archive => 'journal'`.
 - Preserve every existing Journal post, taxonomy term, media relationship, revision, and post ID.
 - Dispatch-created content must always use `post_type = journal` and `post_status = draft`.
 - Only a logged-in WordPress administrator with `manage_options` may activate or roll back configuration.
@@ -428,7 +428,7 @@ final class Lunara_Journal_Config_Schema {
                     'drafted',
                     'needs_chatgpt_review',
                     'validation_failed',
-                    'ready_for_dalton',
+                    'ready_for_editor',
                     'published',
                     'rejected'
                 ),
@@ -656,7 +656,7 @@ Store sanitized JSON in `post_content`; use `wp_json_encode($config, JSON_PRETTY
 5. set the previous active row to `superseded`;
 6. set the candidate to `active`;
 7. update `OPTION_ACTIVE_ID` and `OPTION_ENFORCED`;
-8. emit `do_action('lunara_journal_configuration_activated', $candidate_id, $previous_id, $config)`;
+8. emit `do_action('lunara_journal_control_plane_activated', $candidate_id, $config)`;
 9. always delete the lock in `finally`.
 
 `rollback()` must clone the historical sanitized configuration, assign `next_patch_version()` based on the current active version, set `META_ROLLBACK_OF`, save as a draft, and pass the clone through `activate()`.
@@ -1499,7 +1499,7 @@ Modify the feed fetcher so `fetch_all(array $runtime)` calls `Lunara_Dispatch_So
 
 - [ ] **Step 4: Route scheduling through active configuration**
 
-On configuration activation, Foundation emits `lunara_journal_configuration_activated`. Dispatch subscribes and reschedules its cron using `config['automation']['schedule']`. Keep the old `update_option_lunara_dispatch_schedule` listener only before enforcement.
+On configuration activation, Foundation emits `lunara_journal_control_plane_activated`. Dispatch consumes that canonical hook and idempotently reschedules its own cron from `config['dispatch']['schedule']` while retaining its legacy option listener for pre-Control Plane settings.
 
 - [ ] **Step 5: Add runtime-routing tests**
 
@@ -1713,15 +1713,15 @@ git commit -m "feat: enforce draft creation and record journal provenance"
 private const TRANSITIONS = array(
     'collected'            => array('drafted', 'rejected'),
     'drafted'              => array('needs_chatgpt_review', 'rejected'),
-    'needs_chatgpt_review' => array('validation_failed', 'ready_for_dalton', 'rejected'),
-    'validation_failed'    => array('needs_chatgpt_review', 'ready_for_dalton', 'rejected'),
-    'ready_for_dalton'     => array('needs_chatgpt_review', 'published', 'rejected'),
+    'needs_chatgpt_review' => array('validation_failed', 'ready_for_editor', 'rejected'),
+    'validation_failed'    => array('needs_chatgpt_review', 'ready_for_editor', 'rejected'),
+    'ready_for_editor'     => array('needs_chatgpt_review', 'published', 'rejected'),
     'published'            => array(),
     'rejected'             => array('needs_chatgpt_review'),
 );
 ```
 
-ChatGPT actor type may transition only to `validation_failed`, `ready_for_dalton`, or back to `needs_chatgpt_review`. Only a logged-in administrator may transition to `published`.
+ChatGPT actor type may transition only to `validation_failed`, `ready_for_editor`, or back to `needs_chatgpt_review`. Only a separately publish-authorized actor may transition to `published`.
 
 - [ ] **Step 2: Move validation logic out of the monolith**
 
@@ -1756,7 +1756,7 @@ array(
 
 - [ ] **Step 3: Update REST validate and mark-ready callbacks**
 
-`rest_validate_draft()` calls the validator, persists the report, and transitions to `validation_failed` when invalid. `rest_mark_ready()` refuses invalid drafts and transitions to `ready_for_dalton` when valid. WordPress post status remains `draft`.
+`rest_validate_draft()` calls the validator, persists the report, and transitions to `validation_failed` when invalid. `rest_mark_ready()` refuses invalid drafts and transitions to `ready_for_editor` when valid. WordPress post status remains `draft`.
 
 - [ ] **Step 4: Record manual publication**
 
@@ -1898,7 +1898,7 @@ Then render headings for Editorial Specification, Automation, Providers, Sources
 
 - [ ] **Step 5: Queue sync after activation**
 
-On `lunara_journal_configuration_activated`, schedule single event `lunara_journal_notion_sync_version` five seconds later. Activation returns success without waiting for Notion.
+On `lunara_journal_control_plane_activated`, schedule single event `lunara_journal_notion_sync_version` five seconds later. Activation returns success without waiting for Notion.
 
 - [ ] **Step 6: Add retry behavior**
 

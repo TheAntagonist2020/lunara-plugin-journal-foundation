@@ -135,8 +135,25 @@ final class Lunara_Journal_Control_Plane {
     }
 
     public static function public_config( array $config ) {
-        unset( $config['secrets'], $config['tokens'], $config['api_keys'] );
-        return $config;
+        return self::redact_secret_values( $config );
+    }
+
+    private static function redact_secret_values( array $values ) {
+        $redacted = array();
+        foreach ( $values as $key => $value ) {
+            $normalized = strtolower( str_replace( '-', '_', (string) $key ) );
+            $is_secret = in_array(
+                $normalized,
+                array( 'secret', 'secrets', 'token', 'tokens', 'api_key', 'api_keys', 'password', 'passwords', 'authorization', 'access_key', 'private_key', 'client_secret', 'auth_token', 'access_token' ),
+                true
+            ) || preg_match( '/(?:^|_)(?:api_key|access_token|auth_token|client_secret|private_key|password|secret)$/', $normalized );
+
+            if ( $is_secret ) {
+                continue;
+            }
+            $redacted[ $key ] = is_array( $value ) ? self::redact_secret_values( $value ) : $value;
+        }
+        return $redacted;
     }
 
     public static function register_acf_fields() {
