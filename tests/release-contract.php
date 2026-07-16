@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.2.
+ * Executable stabilization contracts for Journal Foundation 1.2.3.
  *
  * Run: php tests/release-contract.php
  */
@@ -54,8 +54,8 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_not_contains( $release_surface, '1.2.1', 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.2', 'Plugin header must report 1.2.2.' );
-contract_contains( $main, "const VERSION             = '1.2.2';", 'Runtime Foundation version must be 1.2.2.' );
+contract_contains( $main, 'Version: 1.2.3', 'Plugin header must report 1.2.3.' );
+contract_contains( $main, "const VERSION             = '1.2.3';", 'Runtime Foundation version must be 1.2.3.' );
 contract_contains( $protocol, "const VERSION        = '1.2.2';", 'Protocol version must be 1.2.2.' );
 contract_contains( $protocol, "const SCHEMA_VERSION = '1.2.2';", 'Schema version must be 1.2.2.' );
 
