@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LUNARA Journal Foundation
  * Description: Registers the LUNARA Journal content model, ACF fields, draft-first scope-gated bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
- * Version: 1.2.2
+ * Version: 1.2.3
  * Author: LUNARA FILM
  * Requires at least: 6.4
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ) {
-    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.2' );
+    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.3' );
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-protocol.php';
@@ -33,7 +33,7 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-contro
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-fast-desk.php';
 
 final class Lunara_Journal_Foundation {
-    const VERSION             = '1.2.2';
+    const VERSION             = '1.2.3';
     const POST_TYPE           = 'journal';
     const TAX_SECTION         = 'journal_section';
     const TAX_TOPIC           = 'journal_topic';
@@ -1193,6 +1193,12 @@ final class Lunara_Journal_Foundation {
         $provided = $request->get_header( self::REST_TOKEN_HEADER );
         if ( ! $provided ) {
             $provided = $request->get_header( 'x_lunara_bridge_token' );
+        }
+        if ( ! $provided ) {
+            $authorization = $request->get_header( 'authorization' );
+            if ( is_string( $authorization ) && preg_match( '/^Bearer\s+(.+)$/i', trim( $authorization ), $matches ) ) {
+                $provided = $matches[1];
+            }
         }
         return is_string( $provided ) ? trim( $provided ) : '';
     }
