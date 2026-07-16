@@ -3,7 +3,7 @@
   "info": {
     "title": "LUNARA Fast Journal Desk",
     "description": "Private editorial desk for LUNARA Journal. Uses consolidated operations to minimize GPT Action round trips. Publishing is disabled by default and excluded from the standard ChatGPT editor scope. A separately publish-scoped credential may use the explicit single-entry action only when Control Plane publishing is enabled, validation passes, and Dalton explicitly instructs the GPT to publish. Never schedules, bulk publishes, deletes, trashes, changes post status outside the dedicated publish action, or activates configuration.",
-    "version": "1.2.2"
+    "version": "1.2.3"
   },
   "servers": [
     {
@@ -12,10 +12,10 @@
   ],
   "components": {
     "securitySchemes": {
-      "LunaraBridgeToken": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Lunara-Bridge-Token"
+      "LunaraBridgeBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "LUNARA bridge token"
       }
     },
     "schemas": {
@@ -46,7 +46,7 @@
   },
   "security": [
     {
-      "LunaraBridgeToken": []
+      "LunaraBridgeBearer": []
     }
   ],
   "paths": {
@@ -54,7 +54,7 @@
       "get": {
         "operationId": "openJournalDesk",
         "summary": "Open the consolidated Journal Desk",
-        "description": "Returns identity, health, active Control Plane summary, Dispatch state, newest drafts, attention items, and the recommended next draft in one compact call. Use this instead of separate identity, health, configuration, and draft-list calls.",
+        "description": "Opens the complete Journal Desk in one call: authenticated profile, bridge health, active Control Plane summary, Dispatch status, draft counts, featured-image diagnostics, actionable warnings, and recent drafts.",
         "parameters": [
           {
             "name": "limit",
@@ -199,7 +199,7 @@
       "post": {
         "operationId": "publishJournalDraftNow",
         "summary": "Publish a single validated Journal draft immediately",
-        "description": "Publishes exactly one Journal entry immediately only for a separately publish-scoped credential when GPT publishing is enabled, the entry passes validation including the featured-image guard, and Dalton has explicitly instructed the GPT to publish now. The standard ChatGPT editor key cannot call this operation. Scheduling, bulk publishing, and silent publishing are not allowed.",
+        "description": "Publishes exactly one validated Journal entry when Control Plane publishing is enabled and Dalton explicitly instructs the GPT to publish now. The request must confirm immediate publication. Scheduling, bulk publishing, and silent publication are refused.",
         "parameters": [
           {
             "name": "id",

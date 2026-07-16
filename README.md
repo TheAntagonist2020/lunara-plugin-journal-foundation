@@ -102,3 +102,6 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
 5. Replace the GPT instructions with the supplied v1.2.2 instructions.
 6. Keep the existing ChatGPT Editorial Bridge custom header. Reissue scoped keys if the installation still uses the retired legacy wildcard token.
+## Authentication
+
+Version 1.2.3 accepts either the legacy `X-Lunara-Bridge-Token` header or standard `Authorization: Bearer <token>` authentication. Bearer is recommended for ChatGPT Actions.
