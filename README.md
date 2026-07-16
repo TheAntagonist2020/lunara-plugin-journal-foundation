@@ -105,4 +105,3 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 ## Authentication
 
 Version 1.2.3 accepts either the legacy `X-Lunara-Bridge-Token` header or standard `Authorization: Bearer <token>` authentication. Bearer is recommended for ChatGPT Actions.
-
