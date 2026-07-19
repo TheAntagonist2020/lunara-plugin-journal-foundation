@@ -28,6 +28,9 @@ jobs:
       - name: Release contract
         run: php tests/release-contract.php
 
+      - name: WordPress behavior contract
+        run: php tests/wp-behavior-contract.php
+
       - name: OpenAPI JSON syntax
         run: |
           python3 - <<'PYEOF'
