@@ -118,9 +118,3 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
 5. Replace the GPT instructions with the supplied v1.2.3 instructions.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.
-
-## Changelog
-
-### Unreleased
-
-- Added remote-URL featured image sideload for Journal drafts, triggered by the `_lunara_journal_set_featured_image_url` meta key, with source-URL dedup, thumbnail readback, provenance mirroring onto `journal_image_*`, and automatic Featured Image Guard re-validation.
