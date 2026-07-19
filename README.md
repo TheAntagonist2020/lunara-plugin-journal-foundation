@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.2
+Version: 1.2.3
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -10,11 +10,11 @@ Use the included OpenAPI schema:
 
 `openapi/lunara-journal-fast-desk.openapi.json`
 
-Authentication remains a separate GPT Action setting:
+Authentication remains a separate GPT Action setting. Use the standard Bearer scheme for ChatGPT Actions:
 
-`X-Lunara-Bridge-Token: {ChatGPT Editorial Bridge key}`
+`Authorization: Bearer {ChatGPT Editorial Bridge key}`
 
-The key is never stored in the JSON schema.
+The legacy `X-Lunara-Bridge-Token` header remains supported. The key is never stored in the JSON schema, and query-string tokens are rejected.
 
 Consolidated operations:
 
@@ -75,7 +75,7 @@ The standard ChatGPT Editorial Bridge key refuses:
 
 The dedicated publish route remains available only to an explicitly publish-scoped key or a WordPress user who can both edit the selected entry and publish posts. Control Plane publishing is off by default.
 
-Authentication is header-only. Send access keys with `X-Lunara-Bridge-Token`; query-string tokens are rejected.
+Authentication is header-only. Send access keys with `Authorization: Bearer <token>` (recommended for ChatGPT Actions) or the legacy `X-Lunara-Bridge-Token`; query-string tokens are rejected.
 
 ## Legacy migration safety
 
@@ -96,12 +96,9 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 
 ## Install order
 
-1. Replace the existing LUNARA Journal Foundation with version 1.2.2.
+1. Replace the existing LUNARA Journal Foundation with version 1.2.3.
 2. Replace Lunara Dispatch Automation with version 3.2.0.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Replace the GPT instructions with the supplied v1.2.2 instructions.
-6. Keep the existing ChatGPT Editorial Bridge custom header. Reissue scoped keys if the installation still uses the retired legacy wildcard token.
-## Authentication
-
-Version 1.2.3 accepts either the legacy `X-Lunara-Bridge-Token` header or standard `Authorization: Bearer <token>` authentication. Bearer is recommended for ChatGPT Actions.
+5. Replace the GPT instructions with the supplied v1.2.3 instructions.
+6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.
