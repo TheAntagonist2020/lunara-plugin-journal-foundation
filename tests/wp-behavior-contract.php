@@ -256,6 +256,15 @@ update_post_meta( 99, '_wp_attachment_image_alt', 'A film still' );
 
 require dirname( __DIR__ ) . '/lunara-journal-foundation.php';
 
+// WordPress supplies value, request, and parameter name to validate_callback.
+// This must remain safe on PHP 8+ and reject non-positive/non-integer IDs.
+$validator_request = new WP_REST_Request( array( 'id' => '100020' ) );
+behavior_assert( true === Lunara_Journal_Foundation::rest_validate_positive_id( '100020', $validator_request, 'id' ), 'Three-argument REST validation must accept a positive integer ID.' );
+behavior_assert( false === Lunara_Journal_Foundation::rest_validate_positive_id( '0', $validator_request, 'id' ), 'REST validation must reject zero.' );
+behavior_assert( false === Lunara_Journal_Foundation::rest_validate_positive_id( '-1', $validator_request, 'id' ), 'REST validation must reject negative IDs.' );
+behavior_assert( false === Lunara_Journal_Foundation::rest_validate_positive_id( '12.5', $validator_request, 'id' ), 'REST validation must reject decimal IDs.' );
+behavior_assert( false === Lunara_Journal_Foundation::rest_validate_positive_id( 'draft', $validator_request, 'id' ), 'REST validation must reject non-numeric IDs.' );
+
 behavior_assert( Lunara_Journal_Notion_Client::has_credentials(), 'Notion credentials must accept the constant-first token path.' );
 
 $ingest_match = new ReflectionMethod( 'Lunara_Journal_Ingest', 'matches' );

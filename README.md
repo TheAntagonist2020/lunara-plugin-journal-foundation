@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.3
+Version: 1.2.4
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -18,7 +18,7 @@ The legacy `X-Lunara-Bridge-Token` header remains supported. The key is never st
 
 Consolidated operations:
 
-- `GET /journal/desk` — identity, health, Control Plane summary, Dispatch state, newest drafts, attention items, and the recommended next draft in one cached call.
+- `GET /journal/desk` — identity, health, Control Plane summary, Dispatch state, searchable and paginated drafts, attention items, and the recommended next draft. Use `search`, `page`, and `limit` to traverse the complete inventory without oversized responses.
 - `GET /journal/desk/drafts/{id}` — complete editing workspace with active editorial rules and current validation, without the full audit log.
 - `POST /journal/desk/drafts/{id}/save-validate` — save Dalton-approved fields and run deterministic validation in one call.
 - `POST /journal/desk/run-dispatch` — queue a manual Dispatch run asynchronously and return immediately.
@@ -48,7 +48,7 @@ Quality warnings:
 
 ## Speed behavior
 
-- The Journal Desk snapshot is cached for 60 seconds.
+- The default first Journal Desk page is cached for 60 seconds. Search results and later pages are always queried directly.
 - Active configuration is cached within each WordPress request.
 - Compiled prompts are memoized within each WordPress request.
 - Normal workspace responses omit full audit history.
@@ -60,11 +60,11 @@ The `chatgpt_editor` profile has these scopes:
 
 `read`, `update`, `validate`, `mark_ready`, `run_dispatch`, `audit`, `schema`
 
-Existing ChatGPT keys automatically receive the `run_dispatch` scope when the profile registry is loaded, and any inherited `publish` scope is removed from the standard editor profile. Scoped keys do not need to be regenerated.
+Existing ChatGPT keys automatically receive the `run_dispatch` scope when the profile registry is loaded. Publishing remains absent by default, but an administrator may explicitly add the `publish` scope to this dedicated profile without granting wildcard WordPress access. Scoped keys do not need to be regenerated.
 
 ## Safety
 
-The standard ChatGPT Editorial Bridge key refuses:
+The default ChatGPT Editorial Bridge key refuses:
 
 - publish
 - schedule/future
@@ -96,9 +96,9 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 
 ## Install order
 
-1. Replace the existing LUNARA Journal Foundation with version 1.2.3.
+1. Replace the existing LUNARA Journal Foundation with version 1.2.4.
 2. Replace Lunara Dispatch Automation with version 3.2.0.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Replace the GPT instructions with the supplied v1.2.3 instructions.
+5. Replace the GPT instructions with the supplied v1.2.4 instructions.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.

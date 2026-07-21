@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.3.
+ * Executable stabilization contracts for Journal Foundation 1.2.4.
  *
  * Run: php tests/release-contract.php
  */
@@ -54,13 +54,13 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_not_contains( $release_surface, '1.2.1', 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.3', 'Plugin header must report 1.2.3.' );
-contract_contains( $main, "const VERSION             = '1.2.3';", 'Runtime Foundation version must be 1.2.3.' );
-contract_contains( $readme, 'Version: 1.2.3', 'README must report Foundation 1.2.3.' );
+contract_contains( $main, 'Version: 1.2.4', 'Plugin header must report 1.2.4.' );
+contract_contains( $main, "const VERSION             = '1.2.4';", 'Runtime Foundation version must be 1.2.4.' );
+contract_contains( $readme, 'Version: 1.2.4', 'README must report Foundation 1.2.4.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.2.3"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.3.' );
+    contract_contains( $openapi_release, '"version": "1.2.4"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.4.' );
 }
 // Protocol/schema stay pinned until the wire contract changes.
 contract_contains( $protocol, "const VERSION        = '1.2.2';", 'Protocol version must be 1.2.2.' );
@@ -106,6 +106,23 @@ if ( preg_match( "/'chatgpt_editor'\s*=>\s*array\((.*?)\R\s*\),\R\s*'dispatch_in
     contract_not_contains( $chatgpt_profile[1], "'publish'", 'Default ChatGPT editor profile must not include publish scope.' );
 } else {
     contract_assert( false, 'Unable to locate default ChatGPT editor profile.' );
+}
+contract_not_contains( $main, "array_diff( \$merged_scopes, array( 'publish' ) )", 'An explicitly granted ChatGPT publish scope must survive profile reconciliation.' );
+
+// WordPress 7/PHP 8 passes three arguments to REST validators; native
+// one-argument callbacks would fatal before any draft handler can run.
+contract_not_contains( $main, "'validate_callback' => 'is_numeric'", 'Foundation REST IDs must not use the one-argument native is_numeric callback.' );
+contract_not_contains( $fast_desk, "'validate_callback' => 'is_numeric'", 'Fast Desk REST IDs must not use the one-argument native is_numeric callback.' );
+contract_contains( $main, 'public static function rest_validate_positive_id', 'Foundation must expose the WordPress-compatible positive ID validator.' );
+contract_contains( $fast_desk, "array( 'Lunara_Journal_Foundation', 'rest_validate_positive_id' )", 'Fast Desk must use the shared WordPress-compatible ID validator.' );
+
+// Complete inventory access stays bounded through search and pagination.
+contract_contains( $fast_desk, "'paged'          => \$page", 'Fast Desk query must support one-based pagination.' );
+contract_contains( $fast_desk, "\$query_args['s'] = \$search", 'Fast Desk query must support targeted Journal search.' );
+contract_contains( $fast_desk, "'has_more'    => \$page < \$total_pages", 'Fast Desk must tell the GPT whether another page exists.' );
+foreach ( array( $production_openapi, $bridge_openapi, $staging_openapi ) as $openapi_release ) {
+    contract_contains( $openapi_release, '"name": "page"', 'OpenAPI must expose Journal Desk pagination.' );
+    contract_contains( $openapi_release, '"name": "search"', 'OpenAPI must expose targeted Journal search.' );
 }
 
 // Bulk migration is preview-gated and marker ordering proves successful readback first.
