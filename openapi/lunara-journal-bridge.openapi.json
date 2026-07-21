@@ -54,7 +54,7 @@
       "get": {
         "operationId": "openJournalDesk",
         "summary": "Open the consolidated Journal Desk",
-        "description": "Opens the Journal Desk with authenticated profile, bridge health, active Control Plane summary, Dispatch status, draft counts, featured-image diagnostics, actionable warnings, and one bounded draft page. Use search to find a topic such as Odyssey and follow pagination.has_more/next_page until false when a complete inventory is requested.",
+        "description": "Opens the authenticated Journal Desk with health, Control Plane, Dispatch, image diagnostics, warnings, and one bounded draft page. Use search for named topics such as Odyssey. For a complete inventory, follow pagination.next_page while pagination.has_more is true.",
         "parameters": [
           {
             "name": "limit",
