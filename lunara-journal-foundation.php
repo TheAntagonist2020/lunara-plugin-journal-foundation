@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LUNARA Journal Foundation
  * Description: Registers the LUNARA Journal content model, ACF fields, draft-first scope-gated bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
- * Version: 1.2.3
+ * Version: 1.2.4
  * Author: LUNARA FILM
  * Requires at least: 6.4
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ) {
-    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.3' );
+    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.4' );
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-protocol.php';
@@ -33,7 +33,7 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-contro
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-fast-desk.php';
 
 final class Lunara_Journal_Foundation {
-    const VERSION             = '1.2.3';
+    const VERSION             = '1.2.4';
     const POST_TYPE           = 'journal';
     const TAX_SECTION         = 'journal_section';
     const TAX_TOPIC           = 'journal_topic';
@@ -968,6 +968,27 @@ final class Lunara_Journal_Foundation {
         );
     }
 
+    /**
+     * Validate a positive REST resource ID using WordPress' three-argument
+     * validation callback contract.
+     *
+     * Native one-argument callbacks such as is_numeric() throw an
+     * ArgumentCountError when WordPress supplies the request and parameter
+     * name on modern PHP versions.
+     *
+     * @param mixed           $value   Submitted parameter value.
+     * @param WP_REST_Request $request Current REST request.
+     * @param string          $param   Parameter name.
+     * @return bool
+     */
+    public static function rest_validate_positive_id( $value, $request = null, $param = '' ) {
+        unset( $request, $param );
+
+        return is_scalar( $value )
+            && 1 === preg_match( '/^\d+$/', (string) $value )
+            && absint( $value ) > 0;
+    }
+
     public static function register_rest_routes() {
         register_rest_route(
             self::REST_NAMESPACE,
@@ -1005,7 +1026,7 @@ final class Lunara_Journal_Foundation {
                     'permission_callback' => array( __CLASS__, 'rest_permissions_check' ),
                     'args'                => array(
                         'id' => array(
-                            'validate_callback' => 'is_numeric',
+                            'validate_callback' => array( __CLASS__, 'rest_validate_positive_id' ),
                             'sanitize_callback' => 'absint',
                         ),
                     ),
@@ -1016,7 +1037,7 @@ final class Lunara_Journal_Foundation {
                     'permission_callback' => array( __CLASS__, 'rest_permissions_check' ),
                     'args'                => array(
                         'id' => array(
-                            'validate_callback' => 'is_numeric',
+                            'validate_callback' => array( __CLASS__, 'rest_validate_positive_id' ),
                             'sanitize_callback' => 'absint',
                         ),
                     ),
@@ -1034,7 +1055,7 @@ final class Lunara_Journal_Foundation {
                     'permission_callback' => array( __CLASS__, 'rest_permissions_check' ),
                     'args'                => array(
                         'id' => array(
-                            'validate_callback' => 'is_numeric',
+                            'validate_callback' => array( __CLASS__, 'rest_validate_positive_id' ),
                             'sanitize_callback' => 'absint',
                         ),
                     ),
@@ -1052,7 +1073,7 @@ final class Lunara_Journal_Foundation {
                     'permission_callback' => array( __CLASS__, 'rest_permissions_check' ),
                     'args'                => array(
                         'id' => array(
-                            'validate_callback' => 'is_numeric',
+                            'validate_callback' => array( __CLASS__, 'rest_validate_positive_id' ),
                             'sanitize_callback' => 'absint',
                         ),
                     ),
@@ -1119,7 +1140,7 @@ final class Lunara_Journal_Foundation {
                     'permission_callback' => array( __CLASS__, 'rest_permissions_check' ),
                     'args'                => array(
                         'id' => array(
-                            'validate_callback' => 'is_numeric',
+                            'validate_callback' => array( __CLASS__, 'rest_validate_positive_id' ),
                             'sanitize_callback' => 'absint',
                         ),
                     ),
@@ -2079,9 +2100,6 @@ final class Lunara_Journal_Foundation {
                 $default_scopes = isset( $profile['scopes'] ) && is_array( $profile['scopes'] ) ? $profile['scopes'] : array();
                 $existing_scopes = isset( $existing['scopes'] ) && is_array( $existing['scopes'] ) ? $existing['scopes'] : array();
                 $merged_scopes = self::sanitize_scope_list( array_merge( $default_scopes, $existing_scopes ) );
-                if ( 'chatgpt_editor' === $id ) {
-                    $merged_scopes = array_values( array_diff( $merged_scopes, array( 'publish' ) ) );
-                }
                 if ( $merged_scopes !== self::sanitize_scope_list( $existing_scopes ) ) {
                     $changed = true;
                 }

@@ -3,7 +3,7 @@
   "info": {
     "title": "LUNARA Fast Journal Desk",
     "description": "Private editorial desk for LUNARA Journal with consolidated operations and deterministic featured-image presence and quality diagnostics. Publishing is disabled by default and excluded from the standard ChatGPT editor scope. A separately publish-scoped credential may use the explicit single-entry action only when Control Plane publishing is enabled, validation passes, and Dalton explicitly instructs the GPT to publish. Never schedules, bulk publishes, deletes, trashes, changes post status outside the dedicated publish action, or activates configuration.",
-    "version": "1.2.3"
+    "version": "1.2.4"
   },
   "servers": [
     {
@@ -54,7 +54,7 @@
       "get": {
         "operationId": "openJournalDesk",
         "summary": "Open the consolidated Journal Desk",
-        "description": "Opens the complete Journal Desk in one call: authenticated profile, bridge health, active Control Plane summary, Dispatch status, draft counts, featured-image diagnostics, actionable warnings, and recent drafts.",
+        "description": "Opens the Journal Desk with authenticated profile, bridge health, active Control Plane summary, Dispatch status, draft counts, featured-image diagnostics, actionable warnings, and one bounded draft page. Use search to find a topic such as Odyssey and follow pagination.has_more/next_page until false when a complete inventory is requested.",
         "parameters": [
           {
             "name": "limit",
@@ -66,6 +66,26 @@
               "maximum": 20,
               "default": 8
             }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "One-based results page. Continue with pagination.next_page while pagination.has_more is true."
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional WordPress title, excerpt, and body search term."
           },
           {
             "name": "refresh",
@@ -80,7 +100,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Journal Desk snapshot including image_counts and compact image diagnostics for each draft."
+            "description": "Journal Desk page including global draft_count, matched_drafts, pagination, image_counts, and compact image diagnostics for each returned draft."
           }
         }
       }

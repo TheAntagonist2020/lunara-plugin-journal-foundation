@@ -36,6 +36,17 @@ final class Lunara_Journal_Fast_Desk {
                     'maximum'           => 20,
                     'sanitize_callback' => 'absint',
                 ),
+                'page' => array(
+                    'type'              => 'integer',
+                    'default'           => 1,
+                    'minimum'           => 1,
+                    'sanitize_callback' => 'absint',
+                ),
+                'search' => array(
+                    'type'              => 'string',
+                    'default'           => '',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ),
                 'refresh' => array(
                     'type'    => 'boolean',
                     'default' => false,
@@ -49,7 +60,7 @@ final class Lunara_Journal_Fast_Desk {
             'permission_callback' => array( 'Lunara_Journal_Foundation', 'rest_permissions_check' ),
             'args'                => array(
                 'id' => array(
-                    'validate_callback' => 'is_numeric',
+                    'validate_callback' => array( 'Lunara_Journal_Foundation', 'rest_validate_positive_id' ),
                     'sanitize_callback' => 'absint',
                 ),
             ),
@@ -61,7 +72,7 @@ final class Lunara_Journal_Fast_Desk {
             'permission_callback' => array( 'Lunara_Journal_Foundation', 'rest_permissions_check' ),
             'args'                => array(
                 'id' => array(
-                    'validate_callback' => 'is_numeric',
+                    'validate_callback' => array( 'Lunara_Journal_Foundation', 'rest_validate_positive_id' ),
                     'sanitize_callback' => 'absint',
                 ),
             ),
@@ -73,7 +84,7 @@ final class Lunara_Journal_Fast_Desk {
             'permission_callback' => array( 'Lunara_Journal_Foundation', 'rest_permissions_check' ),
             'args'                => array(
                 'id' => array(
-                    'validate_callback' => 'is_numeric',
+                    'validate_callback' => array( 'Lunara_Journal_Foundation', 'rest_validate_positive_id' ),
                     'sanitize_callback' => 'absint',
                 ),
             ),
@@ -108,14 +119,17 @@ final class Lunara_Journal_Fast_Desk {
         $started = microtime( true );
         $refresh = self::truthy( $request->get_param( 'refresh' ) );
         $limit   = min( 20, max( 1, absint( $request->get_param( 'limit' ) ) ) );
+        $page    = max( 1, absint( $request->get_param( 'page' ) ) );
+        $search  = sanitize_text_field( (string) $request->get_param( 'search' ) );
+        $cache_eligible = 1 === $page && '' === $search && self::DEFAULT_DRAFT_LIMIT === $limit;
 
         $base = false;
-        if ( ! $refresh && self::DEFAULT_DRAFT_LIMIT === $limit ) {
+        if ( ! $refresh && $cache_eligible ) {
             $base = get_transient( self::CACHE_KEY );
         }
         if ( ! is_array( $base ) ) {
-            $base = self::build_desk_snapshot( $limit );
-            if ( self::DEFAULT_DRAFT_LIMIT === $limit ) {
+            $base = self::build_desk_snapshot( $limit, $page, $search );
+            if ( $cache_eligible ) {
                 set_transient( self::CACHE_KEY, $base, self::CACHE_TTL );
             }
         }
@@ -302,17 +316,22 @@ final class Lunara_Journal_Fast_Desk {
         return rest_ensure_response( $result );
     }
 
-    private static function build_desk_snapshot( $limit ) {
+    private static function build_desk_snapshot( $limit, $page = 1, $search = '' ) {
         $config = Lunara_Journal_Control_Plane::get_active_config();
         $summary = Lunara_Journal_Prompt_Compiler::public_summary( $config );
-        $query = new WP_Query( array(
+        $query_args = array(
             'post_type'      => 'journal',
             'post_status'    => array( 'draft', 'pending', 'private', 'auto-draft' ),
             'posts_per_page' => $limit,
+            'paged'          => $page,
             'orderby'        => 'modified',
             'order'          => 'DESC',
-            'no_found_rows'  => true,
-        ) );
+            'no_found_rows'  => false,
+        );
+        if ( '' !== $search ) {
+            $query_args['s'] = $search;
+        }
+        $query = new WP_Query( $query_args );
 
         $drafts = array();
         $attention = array();
@@ -347,7 +366,12 @@ final class Lunara_Journal_Fast_Desk {
         }
 
         $counts = wp_count_posts( 'journal' );
-        $draft_count = isset( $counts->draft ) ? (int) $counts->draft : count( $drafts );
+        $draft_count = 0;
+        foreach ( array( 'draft', 'pending', 'private', 'auto-draft' ) as $status ) {
+            $draft_count += isset( $counts->$status ) ? (int) $counts->$status : 0;
+        }
+        $matched_drafts = isset( $query->found_posts ) ? (int) $query->found_posts : count( $drafts );
+        $total_pages = isset( $query->max_num_pages ) ? (int) $query->max_num_pages : 0;
 
         return array(
             'ok'                  => true,
@@ -367,7 +391,17 @@ final class Lunara_Journal_Fast_Desk {
             ),
             'dispatch'            => self::dispatch_state(),
             'draft_count'         => $draft_count,
+            'matched_drafts'      => $matched_drafts,
             'returned_drafts'     => count( $drafts ),
+            'search'              => $search,
+            'pagination'          => array(
+                'page'        => $page,
+                'per_page'    => $limit,
+                'total'       => $matched_drafts,
+                'total_pages' => $total_pages,
+                'has_more'    => $page < $total_pages,
+                'next_page'   => $page < $total_pages ? $page + 1 : null,
+            ),
             'image_counts'        => $image_counts,
             'drafts'              => $drafts,
             'attention'           => $attention,

@@ -3,7 +3,7 @@
   "info": {
     "title": "LUNARA Fast Journal Desk - Staging",
     "description": "Staging-only private editorial desk for LUNARA Journal. Replace the stagingHost server variable before importing this schema. Publishing is disabled by default and the standard ChatGPT editor key has no publish scope.",
-    "version": "1.2.3"
+    "version": "1.2.4"
   },
   "servers": [
     {
@@ -48,9 +48,11 @@
         "summary": "Open the consolidated Journal Desk",
         "parameters": [
           { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 } },
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "default": 1 }, "description": "One-based results page. Follow pagination.next_page while pagination.has_more is true." },
+          { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Optional WordPress title, excerpt, and body search term." },
           { "name": "refresh", "in": "query", "required": false, "schema": { "type": "boolean", "default": false } }
         ],
-        "responses": { "200": { "description": "Journal Desk snapshot." } }
+        "responses": { "200": { "description": "Journal Desk page with matched_drafts and pagination." } }
       }
     },
     "/journal/desk/drafts/{id}": {
