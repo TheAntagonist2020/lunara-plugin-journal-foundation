@@ -191,8 +191,20 @@ contract_not_contains( $staging_openapi, 'lunarafilm.com', 'Staging schema must 
 contract_contains( $staging_openapi, '{stagingHost}', 'Staging schema must expose an explicit host variable.' );
 
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $json ) {
-    json_decode( $json, true );
+    $openapi_document = json_decode( $json, true );
     contract_assert( JSON_ERROR_NONE === json_last_error(), ucfirst( $label ) . ' OpenAPI JSON must parse: ' . json_last_error_msg() );
+
+    foreach ( $openapi_document['paths'] ?? array() as $path => $path_item ) {
+        foreach ( $path_item as $method => $operation ) {
+            if ( ! is_array( $operation ) || ! isset( $operation['description'] ) ) {
+                continue;
+            }
+            contract_assert(
+                strlen( $operation['description'] ) <= 300,
+                ucfirst( $label ) . ' OpenAPI ' . strtoupper( $method ) . ' ' . $path . ' description exceeds the ChatGPT 300-character limit.'
+            );
+        }
+    }
 }
 
 if ( $failures ) {
