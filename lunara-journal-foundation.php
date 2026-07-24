@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LUNARA Journal Foundation
  * Description: Registers the LUNARA Journal content model, ACF fields, draft-first scope-gated bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
- * Version: 1.2.4
+ * Version: 1.2.5
  * Author: LUNARA FILM
  * Requires at least: 6.4
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ) {
-    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.4' );
+    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.5' );
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-protocol.php';
@@ -31,9 +31,10 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-notion
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-notion-sync.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-control-plane.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-fast-desk.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-automation.php';
 
 final class Lunara_Journal_Foundation {
-    const VERSION             = '1.2.4';
+    const VERSION             = '1.2.5';
     const POST_TYPE           = 'journal';
     const TAX_SECTION         = 'journal_section';
     const TAX_TOPIC           = 'journal_topic';
@@ -1245,7 +1246,7 @@ final class Lunara_Journal_Foundation {
             return current_user_can( 'edit_others_posts' );
         }
 
-        if ( in_array( $required_scope, array( 'run_dispatch', 'ingest', 'convert', 'schema' ), true ) ) {
+        if ( in_array( $required_scope, array( 'run_dispatch', 'ingest', 'convert', 'schema', 'automation_read', 'capture', 'notify' ), true ) ) {
             return current_user_can( 'manage_options' );
         }
 
@@ -1256,6 +1257,18 @@ final class Lunara_Journal_Foundation {
         $route  = (string) $request->get_route();
         $method = strtoupper( (string) $request->get_method() );
 
+        if ( false !== strpos( $route, '/journal/automation/run-dispatch' ) ) {
+            return 'run_dispatch';
+        }
+        if ( false !== strpos( $route, '/journal/automation/capture' ) ) {
+            return 'capture';
+        }
+        if ( false !== strpos( $route, '/journal/automation/morning-desk' ) ) {
+            return 'notify';
+        }
+        if ( false !== strpos( $route, '/journal/automation/' ) ) {
+            return 'automation_read';
+        }
         if ( false !== strpos( $route, '/journal/desk/run-dispatch' ) ) {
             return 'run_dispatch';
         }
@@ -1341,6 +1354,16 @@ final class Lunara_Journal_Foundation {
                 'profile'       => self::public_access_profile( self::$current_access_profile ),
             )
         );
+    }
+
+    /**
+     * Return the current request identity without token material.
+     *
+     * Automation history uses this public, redacted view so IFTTT activity is
+     * attributable without exposing the profile registry or credential hash.
+     */
+    public static function current_access_profile() {
+        return self::public_access_profile( self::$current_access_profile );
     }
 
     public static function rest_get_audit( WP_REST_Request $request ) {
@@ -2038,7 +2061,7 @@ final class Lunara_Journal_Foundation {
     }
 
     private static function available_access_scopes() {
-        return array( 'read', 'update', 'validate', 'mark_ready', 'run_dispatch', 'publish', 'ingest', 'convert', 'audit', 'schema' );
+        return array( 'read', 'update', 'validate', 'mark_ready', 'run_dispatch', 'publish', 'ingest', 'convert', 'audit', 'schema', 'automation_read', 'capture', 'notify' );
     }
 
     private static function default_access_profiles() {
@@ -2061,6 +2084,18 @@ final class Lunara_Journal_Foundation {
                 'actor'       => 'LUNARA Dispatch Automation',
                 'client'      => 'WordPress Dispatch plugin',
                 'scopes'      => array( 'ingest', 'convert', 'schema' ),
+                'active'      => true,
+                'token_hash'  => '',
+                'last4'       => '',
+                'created_at'  => current_time( 'mysql' ),
+                'last_used_at'=> '',
+            ),
+            'ifttt_operator' => array(
+                'id'          => 'ifttt_operator',
+                'label'       => 'IFTTT Pro+ Operator',
+                'actor'       => 'IFTTT for Dalton Johnson',
+                'client'      => 'IFTTT Webhooks',
+                'scopes'      => array( 'capture', 'run_dispatch', 'notify' ),
                 'active'      => true,
                 'token_hash'  => '',
                 'last4'       => '',
@@ -2952,6 +2987,7 @@ Lunara_Journal_Foundation::bootstrap();
 Lunara_Journal_Ingest::bootstrap();
 Lunara_Journal_Control_Plane::bootstrap();
 Lunara_Journal_Fast_Desk::bootstrap();
+Lunara_Journal_Automation::bootstrap();
 register_activation_hook( __FILE__, array( 'Lunara_Journal_Foundation', 'activate' ) );
 register_activation_hook( __FILE__, array( 'Lunara_Journal_Control_Plane', 'activate' ) );
 register_deactivation_hook( __FILE__, array( 'Lunara_Journal_Foundation', 'deactivate' ) );

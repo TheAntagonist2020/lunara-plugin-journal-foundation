@@ -74,15 +74,22 @@ class WP_Post {
 class WP_REST_Request implements ArrayAccess {
     private $params;
     private $json;
-    public function __construct( array $params = array(), array $json = array() ) {
+    private $headers = array();
+    private $route = '';
+    private $method = 'POST';
+    public function __construct( array $params = array(), array $json = array(), $route = '', $method = 'POST' ) {
         $this->params = $params;
         $this->json = $json;
+        $this->route = (string) $route;
+        $this->method = strtoupper( (string) $method );
     }
     public function get_json_params() { return $this->json; }
     public function get_param( $key ) { return $this->params[ $key ] ?? null; }
-    public function get_header( $key ) { return ''; }
-    public function get_route() { return ''; }
-    public function get_method() { return 'POST'; }
+    public function set_param( $key, $value ) { $this->params[ $key ] = $value; }
+    public function set_header( $key, $value ) { $this->headers[ strtolower( (string) $key ) ] = $value; }
+    public function get_header( $key ) { return $this->headers[ strtolower( (string) $key ) ] ?? ''; }
+    public function get_route() { return $this->route; }
+    public function get_method() { return $this->method; }
     public function offsetExists( $offset ): bool { return isset( $this->params[ $offset ] ); }
     public function offsetGet( $offset ): mixed { return $this->params[ $offset ] ?? null; }
     public function offsetSet( $offset, $value ): void { $this->params[ $offset ] = $value; }
@@ -255,6 +262,48 @@ $GLOBALS['wp_posts'][99] = new WP_Post( array( 'ID' => 99, 'post_type' => 'attac
 update_post_meta( 99, '_wp_attachment_image_alt', 'A film still' );
 
 require dirname( __DIR__ ) . '/lunara-journal-foundation.php';
+
+$scope_resolver = new ReflectionMethod( 'Lunara_Journal_Foundation', 'required_scope_for_request' );
+$scope_resolver->setAccessible( true );
+$automation_scopes = array(
+    '/lunara/v1/journal/automation/status'       => 'automation_read',
+    '/lunara/v1/journal/automation/inbox'        => 'automation_read',
+    '/lunara/v1/journal/automation/capture'      => 'capture',
+    '/lunara/v1/journal/automation/run-dispatch' => 'run_dispatch',
+    '/lunara/v1/journal/automation/morning-desk' => 'notify',
+);
+foreach ( $automation_scopes as $route => $expected_scope ) {
+    $automation_request = new WP_REST_Request( array(), array(), $route, 'POST' );
+    behavior_assert( $expected_scope === $scope_resolver->invoke( null, $automation_request ), 'Automation route has the wrong required scope: ' . $route );
+}
+
+$profile_resolver = new ReflectionMethod( 'Lunara_Journal_Foundation', 'default_access_profiles' );
+$profile_resolver->setAccessible( true );
+$default_profiles = $profile_resolver->invoke( null );
+behavior_assert( isset( $default_profiles['ifttt_operator'] ), 'Default IFTTT operator profile is missing.' );
+$ifttt_scopes = $default_profiles['ifttt_operator']['scopes'];
+behavior_assert( in_array( 'capture', $ifttt_scopes, true ) && in_array( 'run_dispatch', $ifttt_scopes, true ) && in_array( 'notify', $ifttt_scopes, true ), 'IFTTT operator lacks its required private automation scopes.' );
+behavior_assert( ! in_array( 'automation_read', $ifttt_scopes, true ) && ! in_array( 'audit', $ifttt_scopes, true ) && ! in_array( 'publish', $ifttt_scopes, true ) && ! in_array( '*', $ifttt_scopes, true ), 'IFTTT operator received read, audit, publish, or wildcard authority beyond its three actions.' );
+behavior_assert( true === Lunara_Journal_Automation::rest_validate_capture_type( 'idea', null, 'type' ), 'Idea capture type must validate with WordPress three-argument callbacks.' );
+behavior_assert( false === Lunara_Journal_Automation::rest_validate_capture_type( 'publish', null, 'type' ), 'Unapproved capture type must fail validation.' );
+
+$capture_lock_acquire = new ReflectionMethod( 'Lunara_Journal_Automation', 'acquire_capture_lock' );
+$capture_lock_release = new ReflectionMethod( 'Lunara_Journal_Automation', 'release_capture_lock' );
+$capture_lock_acquire->setAccessible( true );
+$capture_lock_release->setAccessible( true );
+$capture_lock = $capture_lock_acquire->invoke( null, 'ifttt-capture-1' );
+behavior_assert( is_array( $capture_lock ) && ! empty( $capture_lock['owner'] ), 'First capture request must acquire an atomic lock.' );
+$capture_contended = $capture_lock_acquire->invoke( null, 'ifttt-capture-1' );
+behavior_assert( is_wp_error( $capture_contended ) && 'lunara_automation_capture_lock_busy' === $capture_contended->get_error_code(), 'Concurrent capture retry must fail retryably while another owner holds the event lock.' );
+$capture_lock_release->invoke( null, $capture_lock );
+behavior_assert( null === get_option( $capture_lock['option_name'], null ), 'Capture lock must be released by its owner.' );
+
+$stale_capture_name = Lunara_Journal_Automation::CAPTURE_LOCK_PREFIX . hash( 'sha256', 'ifttt-capture-stale' );
+add_option( $stale_capture_name, array( 'owner' => 'stale-owner', 'created_at' => time() - 300, 'expires_at' => time() - 180 ), '', false );
+$stale_capture_lock = $capture_lock_acquire->invoke( null, 'ifttt-capture-stale' );
+behavior_assert( is_array( $stale_capture_lock ) && 'stale-owner' !== $stale_capture_lock['owner'], 'Clearly expired capture lock must be reclaimed atomically.' );
+$capture_lock_release->invoke( null, $stale_capture_lock );
+behavior_assert( null === get_option( $stale_capture_name, null ), 'Reclaimed capture lock must be released after use.' );
 
 // WordPress supplies value, request, and parameter name to validate_callback.
 // This must remain safe on PHP 8+ and reject non-positive/non-integer IDs.
