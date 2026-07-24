@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.4
+Version: 1.2.5
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -62,6 +62,23 @@ The `chatgpt_editor` profile has these scopes:
 
 Existing ChatGPT keys automatically receive the `run_dispatch` scope when the profile registry is loaded. Publishing remains absent by default, but an administrator may explicitly add the `publish` scope to this dedicated profile without granting wildcard WordPress access. Scoped keys do not need to be regenerated.
 
+## IFTTT Pro+ Journal Automation
+
+Foundation 1.2.5 adds a dedicated `ifttt_operator` profile and a private Automation Inbox. IFTTT is transport only: Foundation authenticates each request, deduplicates event IDs, stores a bounded audit history, and keeps WordPress authoritative.
+
+Supported first-release workflows:
+
+- Morning Desk — asks WordPress to compile operational Journal/Dispatch status and queues an allowlisted IFTTT notification.
+- Run Lunara — reuses Fast Journal Desk's existing asynchronous Dispatch queue.
+- Capture Idea — stores a private Automation Inbox draft.
+- Source Radar — stores a private source candidate with its exact source URL.
+- Screening Follow-Up — stores private post-screening notes without creating a public article.
+- Needs Attention — emits only for failed Dispatch reports or failed Journal validation.
+
+Generate the dedicated IFTTT profile token from **Journal → Journal Bridge**. Send it only in an `Authorization: Bearer` or `X-Lunara-Bridge-Token` header. Configure outbound IFTTT delivery only through `LUNARA_IFTTT_WEBHOOK_KEY` in `wp-config.php` or the deployment environment; the key is never stored in a WordPress option or rendered in Control Desk.
+
+The IFTTT profile has only three scopes: capture private signals, queue Dispatch, and trigger the allowlisted notification workflow. It cannot read the private inbox or broader Journal audit API, and it can never publish, schedule, delete, change plugins/themes, or change cache/CDN settings. Exact Applet recipes and the activation/rollback gate are in [`docs/IFTTT-PRO-PLUS-SETUP.md`](docs/IFTTT-PRO-PLUS-SETUP.md).
+
 ## Safety
 
 The default ChatGPT Editorial Bridge key refuses:
@@ -96,9 +113,9 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 
 ## Install order
 
-1. Replace the existing LUNARA Journal Foundation with version 1.2.4.
+1. Replace the existing LUNARA Journal Foundation with version 1.2.5.
 2. Replace Lunara Dispatch Automation with version 3.2.0.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Replace the GPT instructions with the supplied v1.2.4 instructions.
+5. Keep the current GPT instructions; the 1.2.5 automation routes are separate from the Journal Editor Action schema.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.
