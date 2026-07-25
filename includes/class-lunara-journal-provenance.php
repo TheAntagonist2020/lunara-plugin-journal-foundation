@@ -7,6 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/class-lunara-journal-image-sideload.php';
+require_once __DIR__ . '/class-lunara-journal-control-tower.php';
 
 final class Lunara_Journal_Provenance {
     public static function attach_dispatch_provenance( $post_id, array $context = array() ) {
