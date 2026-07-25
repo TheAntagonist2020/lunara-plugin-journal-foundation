@@ -46,6 +46,22 @@ Quality warnings:
 
 `openJournalDesk` reports compact image status and aggregate image counts. `openJournalWorkspace` returns full dimensions, MIME type, URL, aspect ratio, alt text, hard errors, and warnings. `saveAndValidateJournalDraft` and `markJournalDraftReady` fail when the image is missing or unusable.
 
+## Featured image sideload
+
+Foundation can attach a featured image to a Journal draft directly from a remote image URL, closing the gap where only an already-uploaded attachment id was accepted. This lets the editor choose the image for a story and attach it in the same pass as the writing, so the words and the picture are reviewed together.
+
+Trigger it by writing the post-meta key `_lunara_journal_set_featured_image_url` on a Journal draft, for example through the standard update-post bridge path. Optional companion keys `_lunara_journal_set_featured_image_alt` and `_lunara_journal_set_featured_image_credit` supply alt text and credit; alt text defaults to the entry title when omitted.
+
+On the request that writes the trigger key, Foundation:
+
+- validates the URL (http/https only) and downloads it with `media_sideload_image`
+- reuses an existing attachment when the same source URL was sideloaded before
+- sets the media-library image as the draft's featured image and reads the assignment back before trusting it
+- mirrors the source URL, alt text, and credit onto the `journal_image_*` fields
+- clears the Featured Image Guard cache and re-runs validation so the image diagnostics reflect the new image immediately
+
+The outcome (attachment id, dimensions, and any error) is recorded on the draft as `_lunara_journal_image_sideload_result` for inspection. Sideloading only applies to draft, pending, and private Journal entries; published, scheduled, and trashed content is refused. A public `Lunara_Journal_Image_Sideload::sideload_from_url()` is also available for same-process callers.
+
 ## Speed behavior
 
 - The default first Journal Desk page is cached for 60 seconds. Search results and later pages are always queried directly.
