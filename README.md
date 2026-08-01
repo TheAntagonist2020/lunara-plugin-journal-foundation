@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.5
+Version: 1.2.6
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -80,14 +80,14 @@ Existing ChatGPT keys automatically receive the `run_dispatch` scope when the pr
 
 ## IFTTT Pro+ Journal Automation
 
-Foundation 1.2.5 adds a dedicated `ifttt_operator` profile and a private Automation Inbox. IFTTT is transport only: Foundation authenticates each request, deduplicates event IDs, stores a bounded audit history, and keeps WordPress authoritative.
+Foundation 1.2.6 keeps the dedicated `ifttt_operator` profile and private Automation Inbox. IFTTT is transport only: Foundation authenticates each request, deduplicates event IDs, stores a bounded audit history, and keeps WordPress authoritative.
 
 Supported first-release workflows:
 
 - Morning Desk — asks WordPress to compile operational Journal/Dispatch status and queues an allowlisted IFTTT notification.
 - Run Lunara — reuses Fast Journal Desk's existing asynchronous Dispatch queue.
 - Capture Idea — stores a private Automation Inbox draft.
-- Source Radar — stores a private source candidate with its exact source URL.
+- Source Radar — stores a private source candidate with its exact source URL. Dispatch can consume only new Source Radar entries through a bounded same-process bridge; successful or editorially terminal outcomes are triaged, while retryable failures stay queued.
 - Screening Follow-Up — stores private post-screening notes without creating a public article.
 - Needs Attention — emits only for failed Dispatch reports or failed Journal validation.
 
@@ -129,9 +129,9 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 
 ## Install order
 
-1. Replace the existing LUNARA Journal Foundation with version 1.2.5.
-2. Replace Lunara Dispatch Automation with version 3.2.0.
+1. Replace the existing LUNARA Journal Foundation with version 1.2.6.
+2. Replace Lunara Dispatch Automation with version 3.2.4.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Keep the current GPT instructions; the 1.2.5 automation routes are separate from the Journal Editor Action schema.
+5. Keep the current GPT instructions; the 1.2.6 automation routes are separate from the Journal Editor Action schema.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.
