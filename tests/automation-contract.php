@@ -90,6 +90,11 @@ automation_contract_contains( $automation, "'lunara_morning_desk'", 'Morning Des
 automation_contract_contains( $automation, "update_option_lunara_dispatch_last_run_report", 'Foundation must observe the existing Dispatch result report.' );
 automation_contract_contains( $automation, "Lunara_Journal_Fast_Desk::rest_run_dispatch", 'Run Lunara must reuse the tested asynchronous Dispatch route.' );
 automation_contract_contains( $automation, 'public static function admin_snapshot', 'Control Desk must receive a non-secret automation snapshot.' );
+automation_contract_contains( $automation, 'public static function dispatch_source_items', 'Dispatch must have a bounded same-process Source Radar reader.' );
+automation_contract_contains( $automation, 'self::get_inbox_items( min( 12, max( 1, absint( $limit ) ) ), \'source\', \'new\' )', 'Dispatch must receive only bounded new Source Radar items.' );
+automation_contract_contains( $automation, 'public static function record_dispatch_source_outcome', 'Dispatch must be able to record an allowlisted terminal Source Radar outcome.' );
+automation_contract_contains( $automation, "array( 'drafted', 'editorial_skip', 'topic_duplicate', 'quality_gate', 'duplicate' )", 'Source Radar outcomes must remain allowlisted.' );
+automation_contract_contains( $automation, 'update_post_meta( $signal_id, self::META_STATUS, \'triaged\' )', 'Terminal Source Radar outcomes must leave the new queue.' );
 automation_contract_not_contains( $automation, 'wp_enqueue_script', 'Automation must not add public or editor JavaScript.' );
 automation_contract_not_contains( $automation, 'wp_enqueue_style', 'Automation must not add public styles.' );
 

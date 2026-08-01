@@ -34,6 +34,9 @@ jobs:
       - name: Journal Automation contract
         run: php tests/automation-contract.php
 
+      - name: Source Radar bridge runtime
+        run: php tests/automation-source-bridge-runtime.php
+
       - name: OpenAPI JSON syntax
         run: |
           python3 - <<'PYEOF'

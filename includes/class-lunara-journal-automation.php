@@ -22,6 +22,10 @@ final class Lunara_Journal_Automation {
     const META_SOURCE_URL         = '_lunara_automation_source_url';
     const META_FILM_TITLE         = '_lunara_automation_film_title';
     const META_RECEIVED_AT        = '_lunara_automation_received_at';
+    const META_DISPATCH_OUTCOME   = '_lunara_automation_dispatch_outcome';
+    const META_DISPATCHED_AT      = '_lunara_automation_dispatched_at';
+    const META_DISPATCH_RUN_ID    = '_lunara_automation_dispatch_run_id';
+    const META_DISPATCH_POST_IDS  = '_lunara_automation_dispatch_post_ids';
     const META_ATTENTION_SIGNATURE = '_lunara_automation_last_attention_signature';
     const OUTBOUND_CRON_HOOK      = 'lunara_journal_automation_send_event';
     const CAPTURE_LOCK_PREFIX     = 'lunara_journal_automation_capture_lock_';
@@ -640,6 +644,89 @@ final class Lunara_Journal_Automation {
                 'imported'      => isset( $report['imported'] ) ? absint( $report['imported'] ) : 0,
             ),
         );
+    }
+
+    /**
+     * Return bounded, private Source Radar inputs for same-process Dispatch use.
+     *
+     * This is deliberately not a REST route. Dispatch receives only new source
+     * signals and never gains general Automation Inbox read authority.
+     *
+     * @param int $limit Maximum source signals to return.
+     * @return array
+     */
+    public static function dispatch_source_items( $limit = 6 ) {
+        $items   = self::get_inbox_items( min( 12, max( 1, absint( $limit ) ) ), 'source', 'new' );
+        $sources = array();
+
+        foreach ( $items as $item ) {
+            if ( empty( $item['id'] ) || empty( $item['source_url'] ) ) {
+                continue;
+            }
+            $sources[] = array(
+                'signal_id'  => absint( $item['id'] ),
+                'title'      => self::limited_text( $item['title'], 250 ),
+                'note'       => self::limited_textarea( $item['note'], 1800 ),
+                'source_url' => self::safe_source_url( $item['source_url'] ),
+                'received_at'=> self::limited_text( $item['received_at'], 80 ),
+            );
+        }
+
+        return $sources;
+    }
+
+    /**
+     * Mark Source Radar inputs terminal only after Dispatch has safely finished.
+     *
+     * Retryable failures intentionally never call this method, leaving the
+     * private signal in the new queue for a later run.
+     *
+     * @param array  $signal_ids Source Radar post IDs.
+     * @param string $outcome    Allowlisted terminal outcome.
+     * @param array  $post_ids   Journal draft IDs, when any were created.
+     * @param string $run_id     Dispatch run UUID.
+     * @return int Number of signals triaged.
+     */
+    public static function record_dispatch_source_outcome( array $signal_ids, $outcome, array $post_ids = array(), $run_id = '' ) {
+        $outcome = sanitize_key( (string) $outcome );
+        if ( ! in_array( $outcome, array( 'drafted', 'editorial_skip', 'topic_duplicate', 'quality_gate', 'duplicate' ), true ) ) {
+            return 0;
+        }
+
+        $signal_ids = array_values( array_unique( array_filter( array_map( 'absint', $signal_ids ) ) ) );
+        $post_ids   = array_values( array_unique( array_filter( array_map( 'absint', $post_ids ) ) ) );
+        $run_id     = self::limited_text( $run_id, 128 );
+        $updated    = 0;
+
+        foreach ( $signal_ids as $signal_id ) {
+            if ( self::POST_TYPE !== get_post_type( $signal_id ) ) {
+                continue;
+            }
+            if ( 'source' !== sanitize_key( (string) get_post_meta( $signal_id, self::META_TYPE, true ) ) ) {
+                continue;
+            }
+            if ( 'new' !== sanitize_key( (string) get_post_meta( $signal_id, self::META_STATUS, true ) ) ) {
+                continue;
+            }
+
+            update_post_meta( $signal_id, self::META_STATUS, 'triaged' );
+            update_post_meta( $signal_id, self::META_DISPATCH_OUTCOME, $outcome );
+            update_post_meta( $signal_id, self::META_DISPATCHED_AT, current_time( 'mysql', true ) );
+            update_post_meta( $signal_id, self::META_DISPATCH_RUN_ID, $run_id );
+            update_post_meta( $signal_id, self::META_DISPATCH_POST_IDS, $post_ids );
+            self::append_history(
+                'source.dispatch',
+                $outcome,
+                array(
+                    'signal_id' => $signal_id,
+                    'post_ids'  => $post_ids,
+                    'run_id'    => $run_id,
+                )
+            );
+            $updated++;
+        }
+
+        return $updated;
     }
 
     private static function get_inbox_items( $limit = 20, $type = '', $status = '' ) {
