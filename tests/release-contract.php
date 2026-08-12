@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.6.
+ * Executable stabilization contracts for Journal Foundation 1.2.7.
  *
  * Run: php tests/release-contract.php
  */
@@ -54,13 +54,13 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_not_contains( $release_surface, '1.2.1', 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.6', 'Plugin header must report 1.2.6.' );
-contract_contains( $main, "const VERSION             = '1.2.6';", 'Runtime Foundation version must be 1.2.6.' );
-contract_contains( $readme, 'Version: 1.2.6', 'README must report Foundation 1.2.6.' );
+contract_contains( $main, 'Version: 1.2.7', 'Plugin header must report 1.2.7.' );
+contract_contains( $main, "const VERSION             = '1.2.7';", 'Runtime Foundation version must be 1.2.7.' );
+contract_contains( $readme, 'Version: 1.2.7', 'README must report Foundation 1.2.7.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.2.6"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.6.' );
+    contract_contains( $openapi_release, '"version": "1.2.7"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.7.' );
 }
 // Protocol/schema stay pinned until the wire contract changes.
 contract_contains( $protocol, "const VERSION        = '1.2.2';", 'Protocol version must be 1.2.2.' );
@@ -152,6 +152,13 @@ contract_contains( $ingest, "'post_status'  => 'draft'", 'Foundation ingest must
 contract_contains( $ingest, "'post_status'     => 'draft'", 'Foundation ingest result must report draft status.' );
 contract_contains( $ingest, 'return self::result( $existing->ID, false', 'Foundation ingest must report idempotent reuse.' );
 contract_not_contains( $ingest, "'post_status' => 'publish'", 'Dedicated ingest module must never publish.' );
+contract_contains( $ingest, "isset( \$payload['acf']['journal_image_source_url'] )", 'External ingest must recognize a source-story image URL.' );
+contract_contains( $ingest, 'Lunara_Journal_Image_Sideload::TRIGGER_URL', 'External ingest must queue the guarded featured-image sideload primitive.' );
+$image_alt_position = strpos( $ingest, 'Lunara_Journal_Image_Sideload::TRIGGER_ALT' );
+$image_credit_position = strpos( $ingest, 'Lunara_Journal_Image_Sideload::TRIGGER_CREDIT' );
+$image_url_position = strpos( $ingest, 'Lunara_Journal_Image_Sideload::TRIGGER_URL' );
+contract_assert( false !== $image_alt_position && false !== $image_credit_position && false !== $image_url_position && $image_alt_position < $image_url_position && $image_credit_position < $image_url_position, 'Image context must be stored before the URL queues the shutdown attach.' );
+contract_contains( $ingest, "! \$payload['featured_media']", 'External source images must not replace an explicit WordPress featured attachment.' );
 $lock_position = strpos( $ingest, '$lock = self::acquire_lock' );
 $locked_recheck = strpos( $ingest, 'self::find_by_idempotency_key', $lock_position );
 contract_assert( false !== $lock_position && false !== $locked_recheck && $locked_recheck > $lock_position, 'Ingest must re-check idempotency after acquiring its atomic lock.' );
