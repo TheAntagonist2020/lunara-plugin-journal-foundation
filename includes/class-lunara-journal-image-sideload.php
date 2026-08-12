@@ -21,6 +21,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Lunara_Journal_Image_Sideload {
+    /** Preferred source width for wide Journal editorial images. */
+    const PREFERRED_REMOTE_WIDTH = 1920;
+
+    /** Minimum width at which an existing attachment is safe to reuse. */
+    const MINIMUM_REUSE_WIDTH = 1200;
+
     /** Trigger meta keys written by the bridge or editor to request an attach. */
     const TRIGGER_URL    = '_lunara_journal_set_featured_image_url';
     const TRIGGER_ALT    = '_lunara_journal_set_featured_image_alt';
@@ -118,14 +124,19 @@ final class Lunara_Journal_Image_Sideload {
             return $url;
         }
 
-        $attachment_id = self::find_existing_attachment( $url );
+        $source_url = $url;
+        $download_url = self::preferred_download_url( $source_url );
+        $attachment_id = self::find_existing_attachment( $source_url );
+        if ( $attachment_id && $download_url !== $source_url && ! self::attachment_meets_preferred_quality( $attachment_id ) ) {
+            $attachment_id = 0;
+        }
         $reused        = (bool) $attachment_id;
         if ( ! $attachment_id ) {
-            $attachment_id = self::download_and_attach( $url, $post_id );
+            $attachment_id = self::download_and_attach( $download_url, $post_id );
             if ( is_wp_error( $attachment_id ) ) {
                 return $attachment_id;
             }
-            update_post_meta( $attachment_id, self::ATTACHMENT_SOURCE_META, $url );
+            update_post_meta( $attachment_id, self::ATTACHMENT_SOURCE_META, $source_url );
         }
 
         $alt = '' !== trim( (string) $alt ) ? sanitize_text_field( $alt ) : self::default_alt( $post );
@@ -137,7 +148,7 @@ final class Lunara_Journal_Image_Sideload {
         }
 
         // Mirror the image provenance onto the editorial ACF fields.
-        self::set_field( $post_id, 'journal_image_source_url', $url );
+        self::set_field( $post_id, 'journal_image_source_url', $source_url );
         self::set_field( $post_id, 'journal_image_alt', $alt );
         if ( '' !== trim( (string) $credit ) ) {
             self::set_field( $post_id, 'journal_image_credit', sanitize_text_field( $credit ) );
@@ -155,7 +166,8 @@ final class Lunara_Journal_Image_Sideload {
 
         self::log( $post_id, $reused ? 'featured_image_reused' : 'featured_image_sideloaded', array(
             'attachment_id' => (int) $attachment_id,
-            'source_url'    => $url,
+            'source_url'    => $source_url,
+            'download_url'  => $download_url,
         ) );
 
         $meta   = wp_get_attachment_metadata( $attachment_id );
@@ -166,7 +178,8 @@ final class Lunara_Journal_Image_Sideload {
             'attachment_id' => (int) $attachment_id,
             'reused'        => $reused,
             'url'           => wp_get_attachment_url( $attachment_id ),
-            'source_url'    => $url,
+            'source_url'    => $source_url,
+            'download_url'  => $download_url,
             'width'         => $width,
             'height'        => $height,
             'dimensions'    => $width && $height ? $width . 'x' . $height : '',
@@ -208,6 +221,30 @@ final class Lunara_Journal_Image_Sideload {
             'no_found_rows'  => true,
         ) );
         return $ids ? (int) $ids[0] : 0;
+    }
+
+    /**
+     * Request a production-size derivative from WordPress-hosted source media.
+     * The original URL remains the canonical provenance and deduplication key.
+     */
+    private static function preferred_download_url( $url ) {
+        $path = (string) wp_parse_url( $url, PHP_URL_PATH );
+        if ( false === strpos( $path, '/wp-content/uploads/' ) ) {
+            return $url;
+        }
+
+        return preg_replace_callback( '/([?&])w=(\d+)(?=(&|#|$))/i', static function ( $matches ) {
+            $width = (int) $matches[2];
+            if ( $width < 1 || $width >= self::PREFERRED_REMOTE_WIDTH ) {
+                return $matches[0];
+            }
+            return $matches[1] . 'w=' . self::PREFERRED_REMOTE_WIDTH;
+        }, $url );
+    }
+
+    private static function attachment_meets_preferred_quality( $attachment_id ) {
+        $metadata = wp_get_attachment_metadata( (int) $attachment_id );
+        return is_array( $metadata ) && isset( $metadata['width'] ) && (int) $metadata['width'] >= self::MINIMUM_REUSE_WIDTH;
     }
 
     private static function validate_url( $url ) {

@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.9.
+ * Executable stabilization contracts for Journal Foundation 1.2.10.
  *
  * Run: php tests/release-contract.php
  */
@@ -43,6 +43,7 @@ $control_plane = contract_file( $root, 'includes/class-lunara-journal-control-pl
 $notion_client = contract_file( $root, 'includes/class-lunara-journal-notion-client.php' );
 $provenance = contract_file( $root, 'includes/class-lunara-journal-provenance.php' );
 $ingest = contract_file( $root, 'includes/class-lunara-journal-ingest.php' );
+$image_sideload = contract_file( $root, 'includes/class-lunara-journal-image-sideload.php' );
 $readme = contract_file( $root, 'README.md' );
 $production_openapi = contract_file( $root, 'openapi/lunara-journal-fast-desk.openapi.json' );
 $bridge_openapi = contract_file( $root, 'openapi/lunara-journal-bridge.openapi.json' );
@@ -52,17 +53,21 @@ $staging_openapi = contract_file( $root, 'openapi/lunara-journal-fast-desk.stagi
 foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridge_openapi, $staging_openapi ) as $release_surface ) {
     contract_not_contains( $release_surface, '1.1.1', 'Stale 1.1.1 release identity remains.' );
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
-    contract_not_contains( $release_surface, '1.2.1', 'Stale 1.2.1 release identity remains.' );
+    contract_assert( ! preg_match( '/(?<![0-9.])1\.2\.1(?![0-9.])/', $release_surface ), 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.9', 'Plugin header must report 1.2.9.' );
-contract_contains( $main, "const VERSION             = '1.2.9';", 'Runtime Foundation version must be 1.2.9.' );
-contract_contains( $readme, 'Version: 1.2.9', 'README must report Foundation 1.2.9.' );
+contract_contains( $main, 'Version: 1.2.10', 'Plugin header must report 1.2.10.' );
+contract_contains( $main, "const VERSION             = '1.2.10';", 'Runtime Foundation version must be 1.2.10.' );
+contract_contains( $readme, 'Version: 1.2.10', 'README must report Foundation 1.2.10.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.2.9"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.9.' );
+    contract_contains( $openapi_release, '"version": "1.2.10"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.10.' );
 }
 contract_contains( $ingest, 'normalize_source_published_at', 'Draft ingest must normalize transport publication dates before ACF readback.' );
+contract_contains( $ingest, 'normalize_content_paragraphs', 'Draft ingest must add editable paragraph structure to long unstructured content.' );
+contract_contains( $image_sideload, 'PREFERRED_REMOTE_WIDTH = 1920', 'Journal image ingest must request the preferred wide editorial source width.' );
+contract_contains( $image_sideload, 'attachment_meets_preferred_quality', 'Low-resolution existing source attachments must not block a quality upgrade.' );
+contract_contains( $image_sideload, "'download_url'", 'Image sideload results must expose the actual download URL for auditability.' );
 // Protocol/schema stay pinned until the wire contract changes.
 contract_contains( $protocol, "const VERSION        = '1.2.2';", 'Protocol version must be 1.2.2.' );
 contract_contains( $protocol, "const SCHEMA_VERSION = '1.2.2';", 'Schema version must be 1.2.2.' );
