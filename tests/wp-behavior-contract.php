@@ -164,6 +164,7 @@ function wp_unslash( $value ) { return $value; }
 function wp_json_encode( $value, $flags = 0 ) { return json_encode( $value, $flags ); }
 function absint( $value ) { return abs( (int) $value ); }
 function current_time( $type, $gmt = false ) { return '2026-07-12 12:00:00'; }
+function wp_timezone() { return new DateTimeZone( 'America/Chicago' ); }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
 function get_bloginfo() { return 'UTF-8'; }
 function wp_hash( $value ) { return hash( 'sha256', (string) $value ); }
@@ -322,6 +323,14 @@ behavior_assert( true === $ingest_match->invoke( null, 0, false, 'journal_ready_
 behavior_assert( true === $ingest_match->invoke( null, 1, true, 'journal_bridge_locked' ), 'Ingest readback must accept ACF true for a checked true_false field.' );
 behavior_assert( false === $ingest_match->invoke( null, 0, false, 'journal_primary_year' ), 'Ingest readback must keep non-boolean fields strict.' );
 
+$source_date_normalizer = new ReflectionMethod( 'Lunara_Journal_Ingest', 'normalize_source_published_at' );
+$source_date_normalizer->setAccessible( true );
+behavior_assert( '2026-08-12 15:54:00' === $source_date_normalizer->invoke( null, 'August 12, 2026 at 03:54PM' ), 'IFTTT human-readable dates must normalize to ACF local database format.' );
+behavior_assert( '2026-08-12 15:54:00' === $source_date_normalizer->invoke( null, '2026-08-12 15:54:00' ), 'Already-normalized ACF dates must remain stable.' );
+behavior_assert( '2026-08-12 15:54:00' === $source_date_normalizer->invoke( null, '2026-08-12T20:54:00+00:00' ), 'Offset publication dates must normalize to the WordPress site timezone.' );
+behavior_assert( 'not-a-date' === $source_date_normalizer->invoke( null, 'not-a-date' ), 'Invalid publication dates must remain invalid so strict readback can fail closed.' );
+behavior_assert( '' === $source_date_normalizer->invoke( null, '' ), 'Empty source publication dates must remain empty.' );
+
 $foundation_match = new ReflectionMethod( 'Lunara_Journal_Foundation', 'readback_values_match' );
 $foundation_match->setAccessible( true );
 behavior_assert( true === $foundation_match->invoke( null, 0, false, 'journal_ready_for_review' ), 'Conversion readback must accept ACF false for an unchecked true_false field.' );
@@ -344,7 +353,7 @@ $payload = array(
     'deck' => 'A canonical deck that also supplies the excerpt.',
     'seo_description' => 'A concise search description for this Journal entry.',
     'featured_media' => 99,
-    'source_items' => array( array( 'url' => 'https://example.com/source', 'headline' => 'Source headline', 'publication' => 'Example' ) ),
+    'source_items' => array( array( 'url' => 'https://example.com/source', 'headline' => 'Source headline', 'publication' => 'Example', 'published_at' => 'August 12, 2026 at 03:54PM' ) ),
     'classification' => array(
         'section' => 'News',
         'topics' => array( 'Production' ),
@@ -363,6 +372,7 @@ behavior_assert( 'draft' === get_post_status( $first['post_id'] ), 'Ingest must 
 behavior_assert( 'A canonical deck that also supplies the excerpt.' === get_post( $first['post_id'] )->post_excerpt, 'Deck must populate the canonical excerpt.' );
 behavior_assert( 'A canonical deck that also supplies the excerpt.' === get_field( 'journal_deck', $first['post_id'] ), 'Deck field must persist.' );
 behavior_assert( 'A Verified Film' === get_field( 'journal_primary_title', $first['post_id'] ), 'Primary title classification must persist.' );
+behavior_assert( '2026-08-12 15:54:00' === get_field( 'journal_source_items', $first['post_id'] )[0]['source_published_at'], 'Full ingest must persist the normalized source publication date.' );
 behavior_assert( false === get_field( 'journal_ready_for_review', $first['post_id'] ), 'Behavior harness must mirror ACF true_false readback for an unchecked field.' );
 behavior_assert( 'run-42' === get_post_meta( $first['post_id'], '_lunara_dispatch_run_id', true ), 'Dispatch run provenance must persist.' );
 

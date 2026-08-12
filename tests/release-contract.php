@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.8.
+ * Executable stabilization contracts for Journal Foundation 1.2.9.
  *
  * Run: php tests/release-contract.php
  */
@@ -54,14 +54,15 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_not_contains( $release_surface, '1.2.1', 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.8', 'Plugin header must report 1.2.8.' );
-contract_contains( $main, "const VERSION             = '1.2.8';", 'Runtime Foundation version must be 1.2.8.' );
-contract_contains( $readme, 'Version: 1.2.8', 'README must report Foundation 1.2.8.' );
+contract_contains( $main, 'Version: 1.2.9', 'Plugin header must report 1.2.9.' );
+contract_contains( $main, "const VERSION             = '1.2.9';", 'Runtime Foundation version must be 1.2.9.' );
+contract_contains( $readme, 'Version: 1.2.9', 'README must report Foundation 1.2.9.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.2.8"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.8.' );
+    contract_contains( $openapi_release, '"version": "1.2.9"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.9.' );
 }
+contract_contains( $ingest, 'normalize_source_published_at', 'Draft ingest must normalize transport publication dates before ACF readback.' );
 // Protocol/schema stay pinned until the wire contract changes.
 contract_contains( $protocol, "const VERSION        = '1.2.2';", 'Protocol version must be 1.2.2.' );
 contract_contains( $protocol, "const SCHEMA_VERSION = '1.2.2';", 'Schema version must be 1.2.2.' );

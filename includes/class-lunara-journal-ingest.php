@@ -385,10 +385,44 @@ final class Lunara_Journal_Ingest {
             'source_publication'  => sanitize_text_field( (string) ( $item['source_publication'] ?? $item['publication'] ?? '' ) ),
             'source_author'       => sanitize_text_field( (string) ( $item['source_author'] ?? $item['author'] ?? '' ) ),
             'source_url'          => esc_url_raw( (string) ( $item['source_url'] ?? $item['url'] ?? '' ) ),
-            'source_published_at' => sanitize_text_field( (string) ( $item['source_published_at'] ?? $item['published_at'] ?? '' ) ),
+            'source_published_at' => self::normalize_source_published_at( $item['source_published_at'] ?? $item['published_at'] ?? '' ),
             'source_reliability'  => sanitize_key( (string) ( $item['source_reliability'] ?? $item['reliability'] ?? 'unknown' ) ),
             'source_excerpt'      => sanitize_textarea_field( (string) ( $item['source_excerpt'] ?? $item['excerpt'] ?? '' ) ),
         );
+    }
+
+    /**
+     * Convert transport-friendly dates to the local database format ACF reads back.
+     *
+     * Feedly and IFTTT commonly send values such as
+     * "August 12, 2026 at 03:54PM". ACF's Date Time Picker normalizes that value
+     * when it saves it, so Foundation must normalize the expected value before
+     * performing its strict post-write verification.
+     *
+     * @param mixed $value Source publication date supplied by the transport.
+     * @return string
+     */
+    private static function normalize_source_published_at( $value ) {
+        $value = sanitize_text_field( (string) $value );
+        if ( '' === $value ) {
+            return '';
+        }
+
+        $candidate = preg_replace( '/\s+at\s+/i', ' ', $value );
+        $timezone  = function_exists( 'wp_timezone' ) ? wp_timezone() : null;
+        $date      = $timezone instanceof DateTimeZone
+            ? date_create_immutable( $candidate, $timezone )
+            : date_create_immutable( $candidate );
+
+        if ( false === $date ) {
+            return $value;
+        }
+
+        if ( $timezone instanceof DateTimeZone ) {
+            $date = $date->setTimezone( $timezone );
+        }
+
+        return $date->format( 'Y-m-d H:i:s' );
     }
 
     private static function find_by_idempotency_key( $key, $any_status ) {
