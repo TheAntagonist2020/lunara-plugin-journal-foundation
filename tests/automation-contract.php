@@ -46,9 +46,12 @@ if ( preg_match( "/'ifttt_operator'\s*=>\s*array\((.*?)\R\s*\),\R\s*'dalton_admi
     automation_contract_contains( $ifttt_profile[1], "'capture'", 'IFTTT profile must capture private editorial signals.' );
     automation_contract_contains( $ifttt_profile[1], "'run_dispatch'", 'IFTTT profile must queue Dispatch through the tested asynchronous path.' );
     automation_contract_contains( $ifttt_profile[1], "'notify'", 'IFTTT profile must have a narrow notification trigger scope.' );
+    automation_contract_contains( $ifttt_profile[1], "'ingest'", 'IFTTT profile must be able to create server-enforced private Journal drafts.' );
     automation_contract_not_contains( $ifttt_profile[1], "'automation_read'", 'IFTTT profile must not read the private inbox or status snapshot.' );
     automation_contract_not_contains( $ifttt_profile[1], "'audit'", 'IFTTT profile must not read the broader Journal audit API.' );
     automation_contract_not_contains( $ifttt_profile[1], "'publish'", 'IFTTT profile must never receive publish scope.' );
+    automation_contract_not_contains( $ifttt_profile[1], "'convert'", 'IFTTT profile must never receive conversion scope.' );
+    automation_contract_not_contains( $ifttt_profile[1], "'schema'", 'IFTTT profile must never receive schema scope.' );
     automation_contract_not_contains( $ifttt_profile[1], "'*'", 'IFTTT profile must never receive wildcard scope.' );
 } else {
     automation_contract_assert( false, 'Unable to isolate the default IFTTT access profile.' );
