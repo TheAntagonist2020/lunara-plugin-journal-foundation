@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.9
+Version: 1.2.10
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -80,7 +80,7 @@ Existing ChatGPT keys automatically receive the `run_dispatch` scope when the pr
 
 ## IFTTT Pro+ Journal Automation
 
-Foundation 1.2.9 keeps the dedicated `ifttt_operator` profile and private Automation Inbox. IFTTT is transport only: Foundation authenticates each request, deduplicates event IDs, stores a bounded audit history, and keeps WordPress authoritative. The profile may call only the server-enforced draft ingest in addition to its existing capture, run, and notification actions; it still has no read, update, validation, audit, conversion, schema, publication, deletion, or wildcard authority. Draft ingest queues the existing guarded image sideload when an external transport supplies `journal_image_source_url`, so a private draft can receive its source image without media-library or publication authority. Human-readable Feedly publication dates are normalized to the site's ACF database format before strict readback verification.
+Foundation 1.2.10 keeps the dedicated `ifttt_operator` profile and private Automation Inbox. IFTTT is transport only: Foundation authenticates each request, deduplicates event IDs, stores a bounded audit history, and keeps WordPress authoritative. The profile may call only the server-enforced draft ingest in addition to its existing capture, run, and notification actions; it still has no read, update, validation, audit, conversion, schema, publication, deletion, or wildcard authority. Draft ingest queues the existing guarded image sideload when an external transport supplies `journal_image_source_url`, so a private draft can receive its source image without media-library or publication authority. Human-readable Feedly publication dates are normalized to the site's ACF database format before strict readback verification. Long unstructured draft copy gains editable paragraph markup without changing its words, and capped WordPress source images request a 1920px derivative while retaining the original provenance URL.
 
 Supported first-release workflows:
 
@@ -129,9 +129,9 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 
 ## Install order
 
-1. Replace the existing LUNARA Journal Foundation with version 1.2.9.
+1. Replace the existing LUNARA Journal Foundation with version 1.2.10.
 2. Replace Lunara Dispatch Automation with version 3.2.4.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Keep the current GPT instructions; the 1.2.9 automation routes are separate from the Journal Editor Action schema.
+5. Keep the current GPT instructions; the 1.2.10 automation routes are separate from the Journal Editor Action schema.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.

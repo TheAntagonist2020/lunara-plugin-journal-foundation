@@ -176,6 +176,7 @@ final class Lunara_Journal_Ingest {
 
         $title = isset( $body['title'] ) ? wp_strip_all_tags( (string) $body['title'] ) : '';
         $content = isset( $body['content'] ) ? self::sanitize_post_html( (string) $body['content'] ) : '';
+        $content = self::normalize_content_paragraphs( $content );
         if ( '' === trim( $title ) && '' === trim( wp_strip_all_tags( $content ) ) ) {
             return new WP_Error( 'lunara_ingest_empty', 'Dispatch ingest requires title or content.' );
         }
@@ -598,6 +599,61 @@ final class Lunara_Journal_Ingest {
         $allowed = wp_kses_allowed_html( 'post' );
         $allowed['em'] = array();
         return wp_kses( $html, $allowed );
+    }
+
+    /**
+     * Add editable paragraph structure to long, otherwise unstructured drafts.
+     *
+     * This is intentionally conservative: existing multi-paragraph or block
+     * markup is never reshaped, and short/ambiguous content is returned intact
+     * so the normal validator can continue to fail closed.
+     */
+    private static function normalize_content_paragraphs( $content ) {
+        $content = trim( (string) $content );
+        if ( '' === $content || preg_match_all( '/<p\b[^>]*>/i', $content ) >= 2 ) {
+            return $content;
+        }
+
+        $working = $content;
+        if ( preg_match( '/^\s*<p\b[^>]*>(.*)<\/p>\s*$/is', $content, $single_paragraph ) ) {
+            $working = trim( $single_paragraph[1] );
+        }
+
+        if ( preg_match( '/<(?:address|article|aside|blockquote|div|figure|figcaption|footer|form|h[1-6]|header|hr|li|main|nav|ol|pre|section|table|ul)\b/i', $working ) ) {
+            return $content;
+        }
+
+        $plain = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $working ) ) );
+        $word_count = str_word_count( html_entity_decode( $plain, ENT_QUOTES, 'UTF-8' ) );
+        if ( $word_count < 80 ) {
+            return $content;
+        }
+
+        $sentences = preg_split( '/(?<=[.!?])\s+(?=(?:<[^>]+>)*[\p{Lu}\p{N}"\x{201C}\x{2018}])/u', $working, -1, PREG_SPLIT_NO_EMPTY );
+        if ( ! is_array( $sentences ) || count( $sentences ) < 4 ) {
+            return $content;
+        }
+
+        $target_count = min( 6, max( 3, (int) ceil( $word_count / 100 ) ), count( $sentences ) );
+        $paragraphs = array();
+        $offset = 0;
+        for ( $index = 0; $index < $target_count; $index++ ) {
+            $remaining_sentences = count( $sentences ) - $offset;
+            $remaining_groups = $target_count - $index;
+            $take = (int) ceil( $remaining_sentences / $remaining_groups );
+            $paragraphs[] = trim( implode( ' ', array_slice( $sentences, $offset, $take ) ) );
+            $offset += $take;
+        }
+
+        $normalized_before = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $working ) ) );
+        $normalized_after = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( implode( ' ', $paragraphs ) ) ) );
+        if ( $normalized_before !== $normalized_after ) {
+            return $content;
+        }
+
+        return implode( "\n\n", array_map( static function ( $paragraph ) {
+            return '<p>' . $paragraph . '</p>';
+        }, $paragraphs ) );
     }
 
     private static function excerpt( $text, $limit ) {

@@ -158,6 +158,7 @@ function sanitize_title( $value ) { return trim( preg_replace( '/[^a-z0-9]+/', '
 function wp_strip_all_tags( $value ) { return strip_tags( (string) $value ); }
 function wp_kses_allowed_html() { return array(); }
 function wp_kses( $value ) { return (string) $value; }
+function wp_parse_url( $url, $component = -1 ) { return parse_url( $url, $component ); }
 function esc_url_raw( $value ) { return filter_var( (string) $value, FILTER_SANITIZE_URL ); }
 function wp_slash( $value ) { return $value; }
 function wp_unslash( $value ) { return $value; }
@@ -330,6 +331,29 @@ behavior_assert( '2026-08-12 15:54:00' === $source_date_normalizer->invoke( null
 behavior_assert( '2026-08-12 15:54:00' === $source_date_normalizer->invoke( null, '2026-08-12T20:54:00+00:00' ), 'Offset publication dates must normalize to the WordPress site timezone.' );
 behavior_assert( 'not-a-date' === $source_date_normalizer->invoke( null, 'not-a-date' ), 'Invalid publication dates must remain invalid so strict readback can fail closed.' );
 behavior_assert( '' === $source_date_normalizer->invoke( null, '' ), 'Empty source publication dates must remain empty.' );
+
+$paragraph_normalizer = new ReflectionMethod( 'Lunara_Journal_Ingest', 'normalize_content_paragraphs' );
+$paragraph_normalizer->setAccessible( true );
+$long_sentences = array();
+for ( $sentence_index = 1; $sentence_index <= 12; $sentence_index++ ) {
+    $long_sentences[] = 'Sentence ' . $sentence_index . ' preserves the <em>Lunara Film</em> editorial wording while adding useful structure for the classic editor.';
+}
+$long_unstructured = '<p>' . implode( ' ', $long_sentences ) . '</p>';
+$structured = $paragraph_normalizer->invoke( null, $long_unstructured );
+behavior_assert( preg_match_all( '/<p\b/i', $structured ) >= 3, 'Long single-paragraph drafts must gain editable paragraph structure.' );
+behavior_assert( trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $long_unstructured ) ) ) === trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $structured ) ) ), 'Paragraph normalization must preserve every editorial word.' );
+behavior_assert( false !== strpos( $structured, '<em>Lunara Film</em>' ), 'Paragraph normalization must preserve allowed inline emphasis.' );
+$already_structured = '<p>First editorial paragraph stays intact.</p><p>Second editorial paragraph stays intact.</p>';
+behavior_assert( $already_structured === $paragraph_normalizer->invoke( null, $already_structured ), 'Existing paragraph structure must remain untouched.' );
+$block_structured = '<div>' . implode( ' ', $long_sentences ) . '</div>';
+behavior_assert( $block_structured === $paragraph_normalizer->invoke( null, $block_structured ), 'Ambiguous block markup must remain unchanged so validation can fail closed.' );
+
+$preferred_image_url = new ReflectionMethod( 'Lunara_Journal_Image_Sideload', 'preferred_download_url' );
+$preferred_image_url->setAccessible( true );
+$deadline_1024 = 'https://deadline.com/wp-content/uploads/2026/08/Lilly-Wachowski-2.jpg?w=1024';
+behavior_assert( 'https://deadline.com/wp-content/uploads/2026/08/Lilly-Wachowski-2.jpg?w=1920' === $preferred_image_url->invoke( null, $deadline_1024 ), 'WordPress source images capped below the preferred size must request a 1920px derivative.' );
+behavior_assert( 'https://deadline.com/wp-content/uploads/2026/08/Lilly-Wachowski-2.jpg?w=2048' === $preferred_image_url->invoke( null, 'https://deadline.com/wp-content/uploads/2026/08/Lilly-Wachowski-2.jpg?w=2048' ), 'Already-large source images must not be reduced.' );
+behavior_assert( 'https://images.example.com/Lilly-Wachowski-2.jpg?w=1024' === $preferred_image_url->invoke( null, 'https://images.example.com/Lilly-Wachowski-2.jpg?w=1024' ), 'Non-WordPress source URLs must not be rewritten.' );
 
 $foundation_match = new ReflectionMethod( 'Lunara_Journal_Foundation', 'readback_values_match' );
 $foundation_match->setAccessible( true );
