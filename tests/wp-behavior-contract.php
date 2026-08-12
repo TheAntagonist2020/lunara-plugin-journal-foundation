@@ -282,8 +282,8 @@ $profile_resolver->setAccessible( true );
 $default_profiles = $profile_resolver->invoke( null );
 behavior_assert( isset( $default_profiles['ifttt_operator'] ), 'Default IFTTT operator profile is missing.' );
 $ifttt_scopes = $default_profiles['ifttt_operator']['scopes'];
-behavior_assert( in_array( 'capture', $ifttt_scopes, true ) && in_array( 'run_dispatch', $ifttt_scopes, true ) && in_array( 'notify', $ifttt_scopes, true ), 'IFTTT operator lacks its required private automation scopes.' );
-behavior_assert( ! in_array( 'automation_read', $ifttt_scopes, true ) && ! in_array( 'audit', $ifttt_scopes, true ) && ! in_array( 'publish', $ifttt_scopes, true ) && ! in_array( '*', $ifttt_scopes, true ), 'IFTTT operator received read, audit, publish, or wildcard authority beyond its three actions.' );
+behavior_assert( in_array( 'capture', $ifttt_scopes, true ) && in_array( 'run_dispatch', $ifttt_scopes, true ) && in_array( 'notify', $ifttt_scopes, true ) && in_array( 'ingest', $ifttt_scopes, true ), 'IFTTT operator lacks its required private automation and draft-ingest scopes.' );
+behavior_assert( ! in_array( 'automation_read', $ifttt_scopes, true ) && ! in_array( 'audit', $ifttt_scopes, true ) && ! in_array( 'publish', $ifttt_scopes, true ) && ! in_array( 'convert', $ifttt_scopes, true ) && ! in_array( 'schema', $ifttt_scopes, true ) && ! in_array( '*', $ifttt_scopes, true ), 'IFTTT operator received read, audit, publish, conversion, schema, or wildcard authority beyond its four actions.' );
 behavior_assert( true === Lunara_Journal_Automation::rest_validate_capture_type( 'idea', null, 'type' ), 'Idea capture type must validate with WordPress three-argument callbacks.' );
 behavior_assert( false === Lunara_Journal_Automation::rest_validate_capture_type( 'publish', null, 'type' ), 'Unapproved capture type must fail validation.' );
 

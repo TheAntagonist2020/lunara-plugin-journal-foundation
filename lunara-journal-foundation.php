@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LUNARA Journal Foundation
  * Description: Registers the LUNARA Journal content model, ACF fields, draft-first scope-gated bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
- * Version: 1.2.7
+ * Version: 1.2.8
  * Author: LUNARA FILM
  * Requires at least: 6.4
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ) {
-    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.7' );
+    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.8' );
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-protocol.php';
@@ -34,7 +34,7 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-fast-d
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-automation.php';
 
 final class Lunara_Journal_Foundation {
-    const VERSION             = '1.2.7';
+    const VERSION             = '1.2.8';
     const POST_TYPE           = 'journal';
     const TAX_SECTION         = 'journal_section';
     const TAX_TOPIC           = 'journal_topic';
@@ -2095,7 +2095,9 @@ final class Lunara_Journal_Foundation {
                 'label'       => 'IFTTT Pro+ Operator',
                 'actor'       => 'IFTTT for Dalton Johnson',
                 'client'      => 'IFTTT Webhooks',
-                'scopes'      => array( 'capture', 'run_dispatch', 'notify' ),
+                // Draft creation only. The ingest endpoint hard-codes post_status=draft
+                // and rejects caller-supplied status, while publish remains absent.
+                'scopes'      => array( 'capture', 'run_dispatch', 'notify', 'ingest' ),
                 'active'      => true,
                 'token_hash'  => '',
                 'last4'       => '',
