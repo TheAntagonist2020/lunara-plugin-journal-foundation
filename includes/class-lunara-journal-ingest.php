@@ -293,6 +293,28 @@ final class Lunara_Journal_Ingest {
         foreach ( $payload['acf'] as $field_name => $value ) {
             self::set_field( $post_id, $field_name, $value );
         }
+
+        // External draft transports such as IFTTT can provide the public
+        // source image URL but cannot know a WordPress attachment id. Queue
+        // the existing guarded sideload primitive so the private draft gains
+        // its featured image, provenance, alt text, and refreshed validation
+        // without granting the transport media-library or publish authority.
+        $source_image_url = isset( $payload['acf']['journal_image_source_url'] )
+            ? esc_url_raw( (string) $payload['acf']['journal_image_source_url'] )
+            : '';
+        if ( ! $payload['featured_media'] && '' !== $source_image_url && class_exists( 'Lunara_Journal_Image_Sideload' ) ) {
+            $source_image_alt = isset( $payload['acf']['journal_image_alt'] )
+                ? sanitize_text_field( (string) $payload['acf']['journal_image_alt'] )
+                : $payload['title'];
+            $source_image_credit = isset( $payload['acf']['journal_image_credit'] )
+                ? sanitize_text_field( (string) $payload['acf']['journal_image_credit'] )
+                : '';
+
+            // Write optional context first; writing the URL queues the attach.
+            update_post_meta( $post_id, Lunara_Journal_Image_Sideload::TRIGGER_ALT, $source_image_alt );
+            update_post_meta( $post_id, Lunara_Journal_Image_Sideload::TRIGGER_CREDIT, $source_image_credit );
+            update_post_meta( $post_id, Lunara_Journal_Image_Sideload::TRIGGER_URL, $source_image_url );
+        }
         self::set_field( $post_id, 'journal_writer_source', 'dispatch' );
         self::set_field( $post_id, 'journal_dispatch_actor', 'Lunara Dispatch Automation' );
         self::set_field( $post_id, 'journal_status', 'needs_chatgpt_review' );
