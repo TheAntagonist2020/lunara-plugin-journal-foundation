@@ -491,7 +491,8 @@ final class Lunara_Journal_Automation {
             return;
         }
         $status = sanitize_key( (string) $meta_value );
-        if ( ! in_array( $status, array( 'failed', 'errors', 'invalid' ), true ) ) {
+        if ( ! self::validation_status_requires_attention( $status ) ) {
+            delete_post_meta( $object_id, self::META_ATTENTION_SIGNATURE );
             return;
         }
 
@@ -519,13 +520,25 @@ final class Lunara_Journal_Automation {
             return;
         }
 
+        $payload = is_array( $payload ) ? $payload : array();
+        if ( self::validation_attention_is_stale( $event, $payload ) ) {
+            self::append_history(
+                'outbound.skipped',
+                'validation_settled',
+                array(
+                    'event'   => $event,
+                    'post_id' => absint( $payload['context']['post_id'] ),
+                )
+            );
+            return;
+        }
+
         $key = self::outbound_key();
         if ( '' === $key || ! self::is_enabled() ) {
             self::append_history( 'outbound.skipped', 'not_configured', array( 'event' => $event ) );
             return;
         }
 
-        $payload = is_array( $payload ) ? $payload : array();
         $body = array(
             'value1' => self::limited_textarea( isset( $payload['message'] ) ? $payload['message'] : '', 1000 ),
             'value2' => self::safe_internal_or_public_url( isset( $payload['link'] ) ? $payload['link'] : '' ),
@@ -576,6 +589,24 @@ final class Lunara_Journal_Automation {
 
     private static function allowed_outbound_events() {
         return array( 'lunara_morning_desk', 'lunara_needs_attention' );
+    }
+
+    private static function validation_status_requires_attention( $status ) {
+        return in_array( sanitize_key( (string) $status ), array( 'failed', 'errors', 'invalid' ), true );
+    }
+
+    private static function validation_attention_is_stale( $event, array $payload ) {
+        if ( 'lunara_needs_attention' !== $event || empty( $payload['context'] ) || ! is_array( $payload['context'] ) ) {
+            return false;
+        }
+
+        $context = $payload['context'];
+        if ( empty( $context['post_id'] ) || ! isset( $context['validation_status'] ) || ! self::validation_status_requires_attention( $context['validation_status'] ) ) {
+            return false;
+        }
+
+        $current_status = get_post_meta( absint( $context['post_id'] ), 'journal_validation_status', true );
+        return ! self::validation_status_requires_attention( $current_status );
     }
 
     private static function build_morning_desk() {

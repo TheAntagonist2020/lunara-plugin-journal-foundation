@@ -37,6 +37,9 @@ jobs:
       - name: Source Radar bridge runtime
         run: php tests/automation-source-bridge-runtime.php
 
+      - name: Needs Attention runtime
+        run: php tests/automation-attention-runtime.php
+
       - name: OpenAPI JSON syntax
         run: |
           python3 - <<'PYEOF'

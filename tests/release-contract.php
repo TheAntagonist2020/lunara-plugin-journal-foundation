@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.11.
+ * Executable stabilization contracts for Journal Foundation 1.2.12.
  *
  * Run: php tests/release-contract.php
  */
@@ -56,13 +56,13 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_assert( ! preg_match( '/(?<![0-9.])1\.2\.1(?![0-9.])/', $release_surface ), 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.11', 'Plugin header must report 1.2.11.' );
-contract_contains( $main, "const VERSION             = '1.2.11';", 'Runtime Foundation version must be 1.2.11.' );
-contract_contains( $readme, 'Version: 1.2.11', 'README must report Foundation 1.2.11.' );
+contract_contains( $main, 'Version: 1.2.12', 'Plugin header must report 1.2.12.' );
+contract_contains( $main, "const VERSION             = '1.2.12';", 'Runtime Foundation version must be 1.2.12.' );
+contract_contains( $readme, 'Version: 1.2.12', 'README must report Foundation 1.2.12.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.2.11"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.11.' );
+    contract_contains( $openapi_release, '"version": "1.2.12"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.12.' );
 }
 contract_contains( $schema, "const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';", 'The Control Plane must default to the cost-safe OpenAI model.' );
 contract_contains( $schema, "array( 'gpt-5.4-mini', 'gpt-5.4-nano' )", 'The Control Plane must use the Dispatch 3.2.5 OpenAI allowlist.' );
