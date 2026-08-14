@@ -60,9 +60,10 @@ final class Lunara_Journal_Provenance {
 
     public static function attach_validation_result( $post_id, array $result ) {
         $status = ! empty( $result['valid'] ) ? 'passed' : 'failed';
-        self::set_field( (int) $post_id, 'journal_validation_status', $status );
         self::set_field( (int) $post_id, 'journal_validation_report', wp_json_encode( $result ) );
         update_post_meta( (int) $post_id, '_lunara_journal_last_validation', $result );
+        self::set_field( (int) $post_id, 'journal_validation_status', $status );
+        do_action( 'lunara_journal_validation_persisted', (int) $post_id, $status, $result );
     }
 
     private static function set_field( $post_id, $field, $value ) {

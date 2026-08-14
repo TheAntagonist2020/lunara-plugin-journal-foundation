@@ -34,7 +34,7 @@ OpenAI runtime configuration is constrained to `gpt-5.4-mini` or `gpt-5.4-nano`.
 
 ### Settled validation alert guard
 
-Foundation 1.2.12 prevents a transient validation failure from producing a false IFTTT Needs Attention alert after the draft has already recovered. Returning to `passed`, `unchecked`, or any other non-invalid status clears the draft's failure signature. When a queued post-specific alert reaches WordPress cron, Foundation reads the current stored validation status again and silently skips delivery unless it is still `failed`, `errors`, or `invalid`. Dispatch-run failure alerts remain independent and are never suppressed by this post-specific check.
+Foundation 1.2.12 prevents a transient validation failure from producing a false IFTTT Needs Attention alert after the draft has already recovered. Validation-origin alerts settle at request shutdown after image sideload and revalidation: Foundation runs the deterministic validator again and queues an alert only if the final stored status is still `failed`, `errors`, or `invalid`. Returning to `passed`, `unchecked`, or any other non-invalid status clears the draft's failure signature. The signature is stored only after cron queueing succeeds and is cleared after queue or delivery failure so a persistent failure can be retried. When a queued post-specific alert reaches WordPress cron, Foundation reads the current stored validation status again and silently skips delivery unless it remains invalid. Dispatch-run failure and connection-test alerts remain independent and are never suppressed by this post-specific check.
 
 ## Featured Image Guard
 
