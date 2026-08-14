@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.11
+Version: 1.2.12
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -31,6 +31,10 @@ Consolidated operations:
 The private Desk and Automation snapshots now expose the same bounded, non-secret Dispatch status contract. The active runtime reports its provider, selected model, 2,200-token output cap, and three-source run budget. The last-run summary reports requested and effective model names, token counts, estimated cost, fallback/error state, processed and deferred source counts, Source Radar count, and source-packet draft count. Usage values that an older run did not report remain `null` and are explicitly marked unreported; a genuine reported zero remains zero. Draft summaries also identify source-packet generation without returning prompts, source bodies, response identifiers, credentials, or API keys.
 
 OpenAI runtime configuration is constrained to `gpt-5.4-mini` or `gpt-5.4-nano`. Existing immutable Control Plane versions are preserved; reading or cloning an older version safely normalizes unsupported OpenAI model names to `gpt-5.4-mini` and caps output at 2,200 tokens.
+
+### Settled validation alert guard
+
+Foundation 1.2.12 prevents a transient validation failure from producing a false IFTTT Needs Attention alert after the draft has already recovered. Validation-origin alerts settle at request shutdown after image sideload and revalidation: Foundation runs the deterministic validator again and queues an alert only if the final stored status is still `failed`, `errors`, or `invalid`. Returning to `passed`, `unchecked`, or any other non-invalid status clears the draft's failure signature. The signature is stored only after cron queueing succeeds and is cleared after queue or delivery failure so a persistent failure can be retried. When a queued post-specific alert reaches WordPress cron, Foundation reads the current stored validation status again and silently skips delivery unless it remains invalid. Dispatch-run failure and connection-test alerts remain independent and are never suppressed by this post-specific check.
 
 ## Featured Image Guard
 
@@ -86,7 +90,7 @@ Existing ChatGPT keys automatically receive the `run_dispatch` scope when the pr
 
 ## IFTTT Pro+ Journal Automation
 
-Foundation 1.2.11 keeps the dedicated `ifttt_operator` profile and private Automation Inbox. IFTTT is transport only: Foundation authenticates each request, deduplicates event IDs, stores a bounded audit history, and keeps WordPress authoritative. The profile may call only the server-enforced draft ingest in addition to its existing capture, run, and notification actions; it still has no read, update, validation, audit, conversion, schema, publication, deletion, or wildcard authority. Draft ingest queues the existing guarded image sideload when an external transport supplies `journal_image_source_url`, so a private draft can receive its source image without media-library or publication authority. Human-readable Feedly publication dates are normalized to the site's ACF database format before strict readback verification. Long unstructured draft copy gains editable paragraph markup without changing its words, and capped WordPress source images request a 1920px derivative while retaining the original provenance URL.
+Foundation 1.2.12 keeps the dedicated `ifttt_operator` profile and private Automation Inbox. IFTTT is transport only: Foundation authenticates each request, deduplicates event IDs, stores a bounded audit history, and keeps WordPress authoritative. The profile may call only the server-enforced draft ingest in addition to its existing capture, run, and notification actions; it still has no read, update, validation, audit, conversion, schema, publication, deletion, or wildcard authority. Draft ingest queues the existing guarded image sideload when an external transport supplies `journal_image_source_url`, so a private draft can receive its source image without media-library or publication authority. Human-readable Feedly publication dates are normalized to the site's ACF database format before strict readback verification. Long unstructured draft copy gains editable paragraph markup without changing its words, and capped WordPress source images request a 1920px derivative while retaining the original provenance URL.
 
 Supported first-release workflows:
 
@@ -128,7 +132,7 @@ Authentication is header-only. Send access keys with `Authorization: Bearer <tok
 
 - WordPress 6.4 or newer.
 - ACF Pro for the fully editable Journal field interface.
-- Lunara Dispatch 3.2.5 or newer for Foundation 1.2.11 automated OpenAI collection, cost-safe Responses API requests, source-packet fallback, and complete Hub telemetry.
+- Lunara Dispatch 3.2.5 or newer for Foundation 1.2.12 automated OpenAI collection, cost-safe Responses API requests, source-packet fallback, and complete Hub telemetry.
 - Journal protocol 1.x compatibility between Foundation and Dispatch.
 
 WordPress remains the authoritative runtime. The private GPT is the daily editorial interface. Notion is optional and is not required by Fast Journal Desk.
@@ -136,8 +140,8 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 ## Install order
 
 1. Confirm Lunara Dispatch Automation 3.2.5 or newer is active. When upgrading an older paired stack, disable automated runs until Dispatch has been upgraded first.
-2. Replace the existing LUNARA Journal Foundation with version 1.2.11.
+2. Replace the existing LUNARA Journal Foundation with version 1.2.12.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Keep the current GPT instructions; the 1.2.11 automation routes are separate from the Journal Editor Action schema.
+5. Keep the current GPT instructions; the 1.2.12 automation routes are separate from the Journal Editor Action schema.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.

@@ -34,6 +34,12 @@ final class Lunara_Journal_Automation {
     const INBOX_LIMIT             = 50;
     const NOTE_LIMIT              = 5000;
 
+    /** Journal posts whose validation-origin alert must settle after image work. */
+    private static $pending_validation_attention = array();
+
+    /** Prevent validation persisted during settlement from re-queuing itself. */
+    private static $settling_validation_attention = false;
+
     public static function bootstrap() {
         add_action( 'init', array( __CLASS__, 'register_inbox_post_type' ), 7 );
         add_action( 'rest_api_init', array( __CLASS__, 'register_rest_routes' ) );
@@ -41,6 +47,8 @@ final class Lunara_Journal_Automation {
         add_action( 'update_option_lunara_dispatch_last_run_report', array( __CLASS__, 'handle_dispatch_report_update' ), 30, 3 );
         add_action( 'added_post_meta', array( __CLASS__, 'handle_validation_meta_change' ), 30, 4 );
         add_action( 'updated_post_meta', array( __CLASS__, 'handle_validation_meta_change' ), 30, 4 );
+        add_action( 'lunara_journal_validation_persisted', array( __CLASS__, 'handle_validation_result' ), 30, 2 );
+        add_action( 'shutdown', array( __CLASS__, 'settle_validation_attention' ), 30 );
         add_action( 'admin_post_lunara_journal_automation_morning_desk', array( __CLASS__, 'admin_send_morning_desk' ) );
         add_action( 'admin_post_lunara_journal_automation_test', array( __CLASS__, 'admin_send_test' ) );
         add_action( 'admin_post_lunara_journal_automation_update_signal', array( __CLASS__, 'admin_update_signal' ) );
@@ -490,26 +498,92 @@ final class Lunara_Journal_Automation {
         if ( 'journal_validation_status' !== (string) $meta_key || 'journal' !== get_post_type( $object_id ) ) {
             return;
         }
-        $status = sanitize_key( (string) $meta_value );
-        if ( ! in_array( $status, array( 'failed', 'errors', 'invalid' ), true ) ) {
+
+        self::handle_validation_result( $object_id, $meta_value );
+    }
+
+    /**
+     * Record every completed deterministic validation, including failed-to-
+     * failed writes that WordPress correctly short-circuits as unchanged meta.
+     */
+    public static function handle_validation_result( $object_id, $status ) {
+        $object_id = absint( $object_id );
+        if ( ! $object_id || 'journal' !== get_post_type( $object_id ) ) {
             return;
         }
 
-        $report    = get_post_meta( $object_id, 'journal_validation_report', true );
-        $signature = hash( 'sha256', $object_id . '|' . $status . '|' . maybe_serialize( $report ) );
-        if ( hash_equals( (string) get_post_meta( $object_id, self::META_ATTENTION_SIGNATURE, true ), $signature ) ) {
+        $status = sanitize_key( (string) $status );
+        if ( ! self::validation_status_requires_attention( $status ) ) {
+            delete_post_meta( $object_id, self::META_ATTENTION_SIGNATURE );
             return;
         }
-        update_post_meta( $object_id, self::META_ATTENTION_SIGNATURE, $signature );
 
-        self::queue_outbound_event(
-            'lunara_needs_attention',
-            array(
-                'message' => sprintf( 'Journal draft "%s" needs attention after validation.', get_the_title( $object_id ) ),
-                'link'    => get_edit_post_link( $object_id, 'raw' ),
-                'context' => array( 'post_id' => $object_id, 'validation_status' => $status ),
-            )
-        );
+        if ( self::$settling_validation_attention ) {
+            return;
+        }
+
+        self::$pending_validation_attention[ absint( $object_id ) ] = true;
+    }
+
+    /**
+     * Re-run deterministic validation after shutdown image work and queue only
+     * a failure that is still authoritative at the end of the request.
+     */
+    public static function settle_validation_attention() {
+        $post_ids = array_keys( self::$pending_validation_attention );
+        self::$pending_validation_attention = array();
+
+        foreach ( $post_ids as $post_id ) {
+            $post_id = absint( $post_id );
+            if ( ! $post_id || 'journal' !== get_post_type( $post_id ) ) {
+                continue;
+            }
+            if ( ! class_exists( 'Lunara_Journal_Validator' ) || ! class_exists( 'Lunara_Journal_Provenance' ) ) {
+                continue;
+            }
+
+            $result = null;
+            self::$settling_validation_attention = true;
+            try {
+                $result = Lunara_Journal_Validator::validate_post( $post_id );
+                if ( is_array( $result ) ) {
+                    Lunara_Journal_Provenance::attach_validation_result( $post_id, $result );
+                }
+            } finally {
+                self::$settling_validation_attention = false;
+            }
+
+            if ( ! is_array( $result ) ) {
+                continue;
+            }
+
+            $status = sanitize_key( (string) get_post_meta( $post_id, 'journal_validation_status', true ) );
+            if ( ! self::validation_status_requires_attention( $status ) ) {
+                delete_post_meta( $post_id, self::META_ATTENTION_SIGNATURE );
+                continue;
+            }
+
+            $report    = get_post_meta( $post_id, 'journal_validation_report', true );
+            $signature = self::validation_attention_signature( $post_id, $status, $report );
+            if ( hash_equals( (string) get_post_meta( $post_id, self::META_ATTENTION_SIGNATURE, true ), $signature ) ) {
+                continue;
+            }
+
+            $queued = self::queue_outbound_event(
+                'lunara_needs_attention',
+                array(
+                    'message' => sprintf( 'Journal draft "%s" needs attention after validation.', get_the_title( $post_id ) ),
+                    'link'    => get_edit_post_link( $post_id, 'raw' ),
+                    'context' => array( 'post_id' => $post_id, 'validation_status' => $status ),
+                )
+            );
+            if ( is_wp_error( $queued ) ) {
+                delete_post_meta( $post_id, self::META_ATTENTION_SIGNATURE );
+                continue;
+            }
+
+            update_post_meta( $post_id, self::META_ATTENTION_SIGNATURE, $signature );
+        }
     }
 
     public static function send_scheduled_event( $event, $payload ) {
@@ -519,13 +593,27 @@ final class Lunara_Journal_Automation {
             return;
         }
 
+        $payload = is_array( $payload ) ? $payload : array();
+        if ( self::validation_attention_is_stale( $event, $payload ) ) {
+            self::clear_validation_attention_signature( $event, $payload );
+            self::append_history(
+                'outbound.skipped',
+                'validation_settled',
+                array(
+                    'event'   => $event,
+                    'post_id' => absint( $payload['context']['post_id'] ),
+                )
+            );
+            return;
+        }
+
         $key = self::outbound_key();
         if ( '' === $key || ! self::is_enabled() ) {
+            self::clear_validation_attention_signature( $event, $payload );
             self::append_history( 'outbound.skipped', 'not_configured', array( 'event' => $event ) );
             return;
         }
 
-        $payload = is_array( $payload ) ? $payload : array();
         $body = array(
             'value1' => self::limited_textarea( isset( $payload['message'] ) ? $payload['message'] : '', 1000 ),
             'value2' => self::safe_internal_or_public_url( isset( $payload['link'] ) ? $payload['link'] : '' ),
@@ -543,11 +631,15 @@ final class Lunara_Journal_Automation {
         );
 
         if ( is_wp_error( $response ) ) {
+            self::clear_validation_attention_signature( $event, $payload );
             self::append_history( 'outbound.' . $event, 'error', array( 'message' => $response->get_error_message() ) );
             return;
         }
 
         $code = (int) wp_remote_retrieve_response_code( $response );
+        if ( $code < 200 || $code >= 300 ) {
+            self::clear_validation_attention_signature( $event, $payload );
+        }
         self::append_history( 'outbound.' . $event, $code >= 200 && $code < 300 ? 'sent' : 'error', array( 'http_code' => $code ) );
     }
 
@@ -576,6 +668,73 @@ final class Lunara_Journal_Automation {
 
     private static function allowed_outbound_events() {
         return array( 'lunara_morning_desk', 'lunara_needs_attention' );
+    }
+
+    private static function validation_status_requires_attention( $status ) {
+        return in_array( sanitize_key( (string) $status ), array( 'failed', 'errors', 'invalid' ), true );
+    }
+
+    private static function validation_attention_signature( $post_id, $status, $report ) {
+        if ( is_string( $report ) ) {
+            $decoded = json_decode( $report, true );
+            if ( is_array( $decoded ) ) {
+                $report = $decoded;
+            }
+        }
+
+        if ( is_array( $report ) ) {
+            $stable_report = array(
+                'errors'   => self::stable_validation_messages( $report['errors'] ?? array() ),
+                'warnings' => self::stable_validation_messages( $report['warnings'] ?? array() ),
+            );
+        } else {
+            $stable_report = self::limited_textarea( maybe_serialize( $report ), 4000 );
+        }
+
+        return hash( 'sha256', absint( $post_id ) . '|' . sanitize_key( (string) $status ) . '|' . wp_json_encode( $stable_report ) );
+    }
+
+    private static function stable_validation_messages( $messages ) {
+        $stable = array();
+        foreach ( is_array( $messages ) ? $messages : array( $messages ) as $message ) {
+            if ( ! is_scalar( $message ) ) {
+                continue;
+            }
+            $message = self::limited_text( $message, 500 );
+            if ( '' !== $message ) {
+                $stable[] = $message;
+            }
+        }
+        $stable = array_values( array_unique( $stable ) );
+        sort( $stable, SORT_STRING );
+        return $stable;
+    }
+
+    private static function validation_attention_is_stale( $event, array $payload ) {
+        if ( 'lunara_needs_attention' !== $event || empty( $payload['context'] ) || ! is_array( $payload['context'] ) ) {
+            return false;
+        }
+
+        $context = $payload['context'];
+        if ( empty( $context['post_id'] ) || ! isset( $context['validation_status'] ) || ! self::validation_status_requires_attention( $context['validation_status'] ) ) {
+            return false;
+        }
+
+        $current_status = get_post_meta( absint( $context['post_id'] ), 'journal_validation_status', true );
+        return ! self::validation_status_requires_attention( $current_status );
+    }
+
+    private static function clear_validation_attention_signature( $event, array $payload ) {
+        if ( 'lunara_needs_attention' !== $event || empty( $payload['context'] ) || ! is_array( $payload['context'] ) ) {
+            return;
+        }
+
+        $context = $payload['context'];
+        if ( empty( $context['post_id'] ) || ! isset( $context['validation_status'] ) || ! self::validation_status_requires_attention( $context['validation_status'] ) ) {
+            return;
+        }
+
+        delete_post_meta( absint( $context['post_id'] ), self::META_ATTENTION_SIGNATURE );
     }
 
     private static function build_morning_desk() {
