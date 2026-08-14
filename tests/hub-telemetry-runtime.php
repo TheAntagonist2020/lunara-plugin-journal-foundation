@@ -180,6 +180,26 @@ hub_assert( null === $legacy['last_run']['estimated_cost_usd'], 'Older reports m
 hub_assert( null === $legacy['last_run']['deferred_source_items'], 'Older reports must not fabricate a zero deferred count.' );
 
 $GLOBALS['hub_options']['lunara_dispatch_last_run_report'] = array(
+    'created'          => 1,
+    'imported'         => 1,
+    'ai_fallback_used' => true,
+    'ai_error_code'    => 'ai_billing_error',
+    'ai_usage'         => array(
+        'provider'          => 'openai',
+        'requested_model'   => 'gpt-5.4-mini',
+        'effective_model'   => 'gpt-5.4-mini',
+        'max_output_tokens' => 2200,
+    ),
+);
+foreach ( array( 'fast_desk' => $fast_method->invoke( null ), 'automation' => $automation_method->invoke( null ) ) as $surface => $failed_before_usage ) {
+    hub_assert( false === $failed_before_usage['last_run']['usage_reported'], $surface . ' must not treat an output cap as reported token usage.' );
+    hub_assert( 2200 === $failed_before_usage['last_run']['max_output_tokens'], $surface . ' lost the attempted output cap.' );
+    hub_assert( null === $failed_before_usage['last_run']['input_tokens'], $surface . ' fabricated input tokens for a pre-usage failure.' );
+    hub_assert( null === $failed_before_usage['last_run']['output_tokens'], $surface . ' fabricated output tokens for a pre-usage failure.' );
+    hub_assert( null === $failed_before_usage['last_run']['estimated_cost_usd'], $surface . ' fabricated a zero cost for a pre-usage failure.' );
+}
+
+$GLOBALS['hub_options']['lunara_dispatch_last_run_report'] = array(
     'created'  => 1,
     'imported' => 1,
     'ai_usage' => array( 'estimated_cost_usd' => 0.0 ),

@@ -636,7 +636,7 @@ final class Lunara_Journal_Automation {
         $created = isset( $report['created'] ) ? absint( $report['created'] ) : 0;
         $imported = isset( $report['imported'] ) ? absint( $report['imported'] ) : 0;
         $fallback_used = ! empty( $report['ai_fallback_used'] );
-        $usage_reported = ! empty( array_intersect( array_keys( $ai_usage ), array( 'max_output_tokens', 'input_tokens', 'cached_input_tokens', 'output_tokens', 'estimated_cost_usd' ) ) );
+        $usage_reported = ! empty( array_intersect( array_keys( $ai_usage ), array( 'input_tokens', 'cached_input_tokens', 'output_tokens', 'estimated_cost_usd' ) ) );
         $estimated_cost = array_key_exists( 'estimated_cost_usd', $ai_usage ) && is_numeric( $ai_usage['estimated_cost_usd'] )
             ? max( 0.0, min( 999999.999999, round( (float) $ai_usage['estimated_cost_usd'], 6 ) ) )
             : null;
