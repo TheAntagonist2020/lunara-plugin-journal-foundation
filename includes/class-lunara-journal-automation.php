@@ -627,23 +627,87 @@ final class Lunara_Journal_Automation {
         if ( ! is_array( $report ) ) {
             $report = array();
         }
+        $runtime = class_exists( 'Lunara_Journal_Control_Plane' ) ? Lunara_Journal_Control_Plane::get_dispatch_runtime_config() : array();
+        $runtime = is_array( $runtime ) ? $runtime : array();
+        $runtime_provider = isset( $runtime['provider'] ) ? sanitize_key( (string) $runtime['provider'] ) : '';
+        $runtime_models = isset( $runtime['models'] ) && is_array( $runtime['models'] ) ? $runtime['models'] : array();
+        $runtime_model = isset( $runtime_models[ $runtime_provider ] ) ? self::limited_text( $runtime_models[ $runtime_provider ], 100 ) : '';
+        $ai_usage = isset( $report['ai_usage'] ) && is_array( $report['ai_usage'] ) ? $report['ai_usage'] : array();
+        $created = isset( $report['created'] ) ? absint( $report['created'] ) : 0;
+        $imported = isset( $report['imported'] ) ? absint( $report['imported'] ) : 0;
+        $fallback_used = ! empty( $report['ai_fallback_used'] );
+        $usage_reported = ! empty( array_intersect( array_keys( $ai_usage ), array( 'input_tokens', 'cached_input_tokens', 'output_tokens', 'estimated_cost_usd' ) ) );
+        $estimated_cost = array_key_exists( 'estimated_cost_usd', $ai_usage ) && is_numeric( $ai_usage['estimated_cost_usd'] )
+            ? max( 0.0, min( 999999.999999, round( (float) $ai_usage['estimated_cost_usd'], 6 ) ) )
+            : null;
         $manual_hook = $active && defined( 'Lunara_Dispatch_Plugin::MANUAL_CRON_HOOK' )
             ? Lunara_Dispatch_Plugin::MANUAL_CRON_HOOK
             : 'lunara_dispatch_manual_requested';
+        $source_budget = $active && defined( 'Lunara_Dispatch_Plugin::MAX_ITEMS_PER_RUN' )
+            ? min( 100, absint( Lunara_Dispatch_Plugin::MAX_ITEMS_PER_RUN ) )
+            : 0;
 
         return array(
             'active'            => $active,
             'version'           => defined( 'LUNARA_DISPATCH_VERSION' ) ? LUNARA_DISPATCH_VERSION : '',
-            'running'           => $active && defined( 'Lunara_Dispatch_Plugin::LOCK_KEY' ) ? (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY ) : false,
+            'running'           => $active ? self::dispatch_running() : false,
             'manual_run_queued' => $active ? (bool) wp_next_scheduled( $manual_hook ) : false,
+            'runtime'           => array(
+                'provider'          => $runtime_provider,
+                'model'             => $runtime_model,
+                'max_output_tokens' => isset( $runtime['max_tokens'] ) ? min( Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS, absint( $runtime['max_tokens'] ) ) : 0,
+                'source_budget'     => $source_budget,
+            ),
             'last_run'          => array(
                 'timestamp_gmt' => isset( $report['timestamp_gmt'] ) ? self::limited_text( $report['timestamp_gmt'], 80 ) : '',
                 'success'       => isset( $report['success'] ) ? (bool) $report['success'] : null,
                 'message'       => isset( $report['message'] ) ? self::limited_text( $report['message'], 500 ) : '',
-                'created'       => isset( $report['created'] ) ? absint( $report['created'] ) : 0,
-                'imported'      => isset( $report['imported'] ) ? absint( $report['imported'] ) : 0,
+                'created'       => $created,
+                'imported'      => $imported,
+                'provider'      => isset( $ai_usage['provider'] ) ? sanitize_key( (string) $ai_usage['provider'] ) : '',
+                'requested_model' => isset( $ai_usage['requested_model'] ) ? self::limited_text( $ai_usage['requested_model'], 100 ) : '',
+                'effective_model' => isset( $ai_usage['effective_model'] ) ? self::limited_text( $ai_usage['effective_model'], 100 ) : '',
+                'usage_reported' => $usage_reported,
+                'max_output_tokens' => array_key_exists( 'max_output_tokens', $ai_usage ) ? absint( $ai_usage['max_output_tokens'] ) : null,
+                'input_tokens' => array_key_exists( 'input_tokens', $ai_usage ) ? absint( $ai_usage['input_tokens'] ) : null,
+                'cached_input_tokens' => array_key_exists( 'cached_input_tokens', $ai_usage ) ? absint( $ai_usage['cached_input_tokens'] ) : null,
+                'output_tokens' => array_key_exists( 'output_tokens', $ai_usage ) ? absint( $ai_usage['output_tokens'] ) : null,
+                'estimated_cost_usd' => $estimated_cost,
+                'fallback_used' => $fallback_used,
+                'error_code' => isset( $report['ai_error_code'] ) ? sanitize_key( (string) $report['ai_error_code'] ) : '',
+                'processed_source_items' => $imported,
+                'deferred_source_items' => array_key_exists( 'deferred_source_items', $report ) ? absint( $report['deferred_source_items'] ) : null,
+                'source_radar_items' => array_key_exists( 'source_radar_items', $report ) ? absint( $report['source_radar_items'] ) : null,
+                'source_packet_drafts' => $fallback_used ? $created : 0,
             ),
         );
+    }
+
+    /**
+     * Read the atomic Dispatch worker lock, with a legacy transient fallback.
+     *
+     * Dispatch 3.2.5 stores a JSON lock in wp_options so that acquisition and
+     * release can use compare-and-swap semantics. A present option is
+     * authoritative, including when it is expired or malformed.
+     *
+     * @return bool
+     */
+    private static function dispatch_running() {
+        if ( ! class_exists( 'Lunara_Dispatch_Plugin' ) || ! defined( 'Lunara_Dispatch_Plugin::LOCK_KEY' ) ) {
+            return false;
+        }
+
+        $raw = get_option( Lunara_Dispatch_Plugin::LOCK_KEY, '' );
+        if ( is_string( $raw ) && '' !== $raw ) {
+            $lock = json_decode( $raw, true );
+
+            return is_array( $lock )
+                && ! empty( $lock['owner'] )
+                && ! empty( $lock['expires'] )
+                && (int) $lock['expires'] >= time();
+        }
+
+        return (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY );
     }
 
     /**

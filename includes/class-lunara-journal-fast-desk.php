@@ -412,30 +412,93 @@ final class Lunara_Journal_Fast_Desk {
 
     private static function dispatch_state() {
         $active = class_exists( 'Lunara_Dispatch_Plugin' );
-        $last_report = $active ? get_option( Lunara_Dispatch_Plugin::REPORT_OPTION, array() ) : array();
+        $report_option = $active && defined( 'Lunara_Dispatch_Plugin::REPORT_OPTION' )
+            ? Lunara_Dispatch_Plugin::REPORT_OPTION
+            : 'lunara_dispatch_last_run_report';
+        $last_report = get_option( $report_option, array() );
         if ( ! is_array( $last_report ) ) {
             $last_report = array();
         }
+        $runtime = class_exists( 'Lunara_Journal_Control_Plane' ) ? Lunara_Journal_Control_Plane::get_dispatch_runtime_config() : array();
+        $runtime = is_array( $runtime ) ? $runtime : array();
+        $runtime_provider = isset( $runtime['provider'] ) ? sanitize_key( (string) $runtime['provider'] ) : '';
+        $runtime_models = isset( $runtime['models'] ) && is_array( $runtime['models'] ) ? $runtime['models'] : array();
+        $runtime_model = isset( $runtime_models[ $runtime_provider ] ) ? self::limited_text( $runtime_models[ $runtime_provider ], 100 ) : '';
+        $ai_usage = isset( $last_report['ai_usage'] ) && is_array( $last_report['ai_usage'] ) ? $last_report['ai_usage'] : array();
+        $created = isset( $last_report['created'] ) ? absint( $last_report['created'] ) : 0;
+        $imported = isset( $last_report['imported'] ) ? absint( $last_report['imported'] ) : 0;
+        $fallback_used = ! empty( $last_report['ai_fallback_used'] );
+        $usage_reported = ! empty( array_intersect( array_keys( $ai_usage ), array( 'input_tokens', 'cached_input_tokens', 'output_tokens', 'estimated_cost_usd' ) ) );
+        $estimated_cost = array_key_exists( 'estimated_cost_usd', $ai_usage ) && is_numeric( $ai_usage['estimated_cost_usd'] )
+            ? max( 0.0, min( 999999.999999, round( (float) $ai_usage['estimated_cost_usd'], 6 ) ) )
+            : null;
         $next_run = $active ? wp_next_scheduled( Lunara_Dispatch_Plugin::CRON_HOOK ) : false;
         $manual_hook = $active && defined( 'Lunara_Dispatch_Plugin::MANUAL_CRON_HOOK' ) ? Lunara_Dispatch_Plugin::MANUAL_CRON_HOOK : 'lunara_dispatch_manual_requested';
         $manual_queued = $active ? wp_next_scheduled( $manual_hook ) : false;
+        $source_budget = $active && defined( 'Lunara_Dispatch_Plugin::MAX_ITEMS_PER_RUN' )
+            ? min( 100, absint( Lunara_Dispatch_Plugin::MAX_ITEMS_PER_RUN ) )
+            : 0;
 
         return array(
             'active'            => $active,
             'version'           => defined( 'LUNARA_DISPATCH_VERSION' ) ? LUNARA_DISPATCH_VERSION : '',
-            'enabled'           => ! empty( Lunara_Journal_Control_Plane::get_dispatch_runtime_config()['enabled'] ),
-            'running'           => $active ? (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY ) : false,
+            'enabled'           => ! empty( $runtime['enabled'] ),
+            'running'           => $active ? self::dispatch_running() : false,
             'manual_run_queued' => (bool) $manual_queued,
             'manual_queued_at'  => get_option( 'lunara_dispatch_manual_run_queued_at', '' ),
             'next_run_gmt'      => $next_run ? gmdate( 'c', $next_run ) : '',
+            'runtime'           => array(
+                'provider'          => $runtime_provider,
+                'model'             => $runtime_model,
+                'max_output_tokens' => isset( $runtime['max_tokens'] ) ? min( Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS, absint( $runtime['max_tokens'] ) ) : 0,
+                'source_budget'     => $source_budget,
+            ),
             'last_run'          => array(
-                'timestamp_gmt' => isset( $last_report['timestamp_gmt'] ) ? $last_report['timestamp_gmt'] : '',
+                'timestamp_gmt' => isset( $last_report['timestamp_gmt'] ) ? self::limited_text( $last_report['timestamp_gmt'], 80 ) : '',
                 'success'       => isset( $last_report['success'] ) ? (bool) $last_report['success'] : null,
-                'message'       => isset( $last_report['message'] ) ? (string) $last_report['message'] : '',
-                'created'       => isset( $last_report['created'] ) ? (int) $last_report['created'] : 0,
-                'imported'      => isset( $last_report['imported'] ) ? (int) $last_report['imported'] : 0,
+                'message'       => isset( $last_report['message'] ) ? self::limited_text( $last_report['message'], 500 ) : '',
+                'created'       => $created,
+                'imported'      => $imported,
+                'provider'      => isset( $ai_usage['provider'] ) ? sanitize_key( (string) $ai_usage['provider'] ) : '',
+                'requested_model' => isset( $ai_usage['requested_model'] ) ? self::limited_text( $ai_usage['requested_model'], 100 ) : '',
+                'effective_model' => isset( $ai_usage['effective_model'] ) ? self::limited_text( $ai_usage['effective_model'], 100 ) : '',
+                'usage_reported' => $usage_reported,
+                'max_output_tokens' => array_key_exists( 'max_output_tokens', $ai_usage ) ? absint( $ai_usage['max_output_tokens'] ) : null,
+                'input_tokens' => array_key_exists( 'input_tokens', $ai_usage ) ? absint( $ai_usage['input_tokens'] ) : null,
+                'cached_input_tokens' => array_key_exists( 'cached_input_tokens', $ai_usage ) ? absint( $ai_usage['cached_input_tokens'] ) : null,
+                'output_tokens' => array_key_exists( 'output_tokens', $ai_usage ) ? absint( $ai_usage['output_tokens'] ) : null,
+                'estimated_cost_usd' => $estimated_cost,
+                'fallback_used' => $fallback_used,
+                'error_code' => isset( $last_report['ai_error_code'] ) ? sanitize_key( (string) $last_report['ai_error_code'] ) : '',
+                'processed_source_items' => $imported,
+                'deferred_source_items' => array_key_exists( 'deferred_source_items', $last_report ) ? absint( $last_report['deferred_source_items'] ) : null,
+                'source_radar_items' => array_key_exists( 'source_radar_items', $last_report ) ? absint( $last_report['source_radar_items'] ) : null,
+                'source_packet_drafts' => $fallback_used ? $created : 0,
             ),
         );
+    }
+
+    /**
+     * Read the atomic Dispatch worker lock, with a legacy transient fallback.
+     *
+     * @return bool
+     */
+    private static function dispatch_running() {
+        if ( ! class_exists( 'Lunara_Dispatch_Plugin' ) || ! defined( 'Lunara_Dispatch_Plugin::LOCK_KEY' ) ) {
+            return false;
+        }
+
+        $raw = get_option( Lunara_Dispatch_Plugin::LOCK_KEY, '' );
+        if ( is_string( $raw ) && '' !== $raw ) {
+            $lock = json_decode( $raw, true );
+
+            return is_array( $lock )
+                && ! empty( $lock['owner'] )
+                && ! empty( $lock['expires'] )
+                && (int) $lock['expires'] >= time();
+        }
+
+        return (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY );
     }
 
     private static function draft_summary( WP_Post $post ) {
@@ -444,6 +507,12 @@ final class Lunara_Journal_Fast_Desk {
         $ready = self::truthy( self::acf_value( 'journal_ready_for_review', $post->ID ) );
         $sources = self::acf_value( 'journal_source_items', $post->ID );
         $image = Lunara_Journal_Image_Guard::inspect( $post->ID );
+        $initial_provider = self::limited_text( get_post_meta( $post->ID, '_lunara_journal_initial_provider', true ), 100 );
+        $prompt_version = self::limited_text( get_post_meta( $post->ID, '_lunara_journal_prompt_version', true ), 100 );
+        $source_packet = self::truthy( get_post_meta( $post->ID, '_lunara_dispatch_source_packet', true ) )
+            || 'source_packet' === sanitize_key( $initial_provider )
+            || 0 === strpos( strtolower( $prompt_version ), 'source-packet' );
+        $generation_mode = $source_packet ? 'source_packet' : ( '' !== $initial_provider ? 'ai_draft' : 'editorial' );
         $attention = array();
 
         foreach ( isset( $image['errors'] ) && is_array( $image['errors'] ) ? $image['errors'] : array() as $image_error ) {
@@ -485,6 +554,10 @@ final class Lunara_Journal_Fast_Desk {
             ),
             'source_count'      => is_array( $sources ) ? count( $sources ) : 0,
             'section'           => self::first_term_name( $post->ID, 'journal_section' ),
+            'generation'        => array(
+                'mode'          => $generation_mode,
+                'source_packet' => $source_packet,
+            ),
             'needs_attention'   => ! empty( $attention ),
             'attention_reasons' => array_values( array_unique( $attention ) ),
             'edit_link'         => admin_url( 'post.php?post=' . absint( $post->ID ) . '&action=edit' ),
@@ -630,6 +703,12 @@ final class Lunara_Journal_Fast_Desk {
 
     private static function truthy( $value ) {
         return in_array( $value, array( true, 1, '1', 'true', 'yes', 'on' ), true );
+    }
+
+    private static function limited_text( $value, $limit ) {
+        $value = sanitize_text_field( (string) $value );
+        $limit = max( 1, absint( $limit ) );
+        return function_exists( 'mb_substr' ) ? mb_substr( $value, 0, $limit ) : substr( $value, 0, $limit );
     }
 
     private static function response_data( $response ) {
