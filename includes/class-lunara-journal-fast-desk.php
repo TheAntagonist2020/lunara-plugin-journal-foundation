@@ -443,7 +443,7 @@ final class Lunara_Journal_Fast_Desk {
             'active'            => $active,
             'version'           => defined( 'LUNARA_DISPATCH_VERSION' ) ? LUNARA_DISPATCH_VERSION : '',
             'enabled'           => ! empty( $runtime['enabled'] ),
-            'running'           => $active ? (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY ) : false,
+            'running'           => $active ? self::dispatch_running() : false,
             'manual_run_queued' => (bool) $manual_queued,
             'manual_queued_at'  => get_option( 'lunara_dispatch_manual_run_queued_at', '' ),
             'next_run_gmt'      => $next_run ? gmdate( 'c', $next_run ) : '',
@@ -476,6 +476,29 @@ final class Lunara_Journal_Fast_Desk {
                 'source_packet_drafts' => $fallback_used ? $created : 0,
             ),
         );
+    }
+
+    /**
+     * Read the atomic Dispatch worker lock, with a legacy transient fallback.
+     *
+     * @return bool
+     */
+    private static function dispatch_running() {
+        if ( ! class_exists( 'Lunara_Dispatch_Plugin' ) || ! defined( 'Lunara_Dispatch_Plugin::LOCK_KEY' ) ) {
+            return false;
+        }
+
+        $raw = get_option( Lunara_Dispatch_Plugin::LOCK_KEY, '' );
+        if ( is_string( $raw ) && '' !== $raw ) {
+            $lock = json_decode( $raw, true );
+
+            return is_array( $lock )
+                && ! empty( $lock['owner'] )
+                && ! empty( $lock['expires'] )
+                && (int) $lock['expires'] >= time();
+        }
+
+        return (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY );
     }
 
     private static function draft_summary( WP_Post $post ) {

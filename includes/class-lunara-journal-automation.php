@@ -650,7 +650,7 @@ final class Lunara_Journal_Automation {
         return array(
             'active'            => $active,
             'version'           => defined( 'LUNARA_DISPATCH_VERSION' ) ? LUNARA_DISPATCH_VERSION : '',
-            'running'           => $active && defined( 'Lunara_Dispatch_Plugin::LOCK_KEY' ) ? (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY ) : false,
+            'running'           => $active ? self::dispatch_running() : false,
             'manual_run_queued' => $active ? (bool) wp_next_scheduled( $manual_hook ) : false,
             'runtime'           => array(
                 'provider'          => $runtime_provider,
@@ -681,6 +681,33 @@ final class Lunara_Journal_Automation {
                 'source_packet_drafts' => $fallback_used ? $created : 0,
             ),
         );
+    }
+
+    /**
+     * Read the atomic Dispatch worker lock, with a legacy transient fallback.
+     *
+     * Dispatch 3.2.5 stores a JSON lock in wp_options so that acquisition and
+     * release can use compare-and-swap semantics. A present option is
+     * authoritative, including when it is expired or malformed.
+     *
+     * @return bool
+     */
+    private static function dispatch_running() {
+        if ( ! class_exists( 'Lunara_Dispatch_Plugin' ) || ! defined( 'Lunara_Dispatch_Plugin::LOCK_KEY' ) ) {
+            return false;
+        }
+
+        $raw = get_option( Lunara_Dispatch_Plugin::LOCK_KEY, '' );
+        if ( is_string( $raw ) && '' !== $raw ) {
+            $lock = json_decode( $raw, true );
+
+            return is_array( $lock )
+                && ! empty( $lock['owner'] )
+                && ! empty( $lock['expires'] )
+                && (int) $lock['expires'] >= time();
+        }
+
+        return (bool) get_transient( Lunara_Dispatch_Plugin::LOCK_KEY );
     }
 
     /**

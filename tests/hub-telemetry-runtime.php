@@ -11,6 +11,7 @@ define( 'LUNARA_DISPATCH_VERSION', '3.2.5' );
 $GLOBALS['hub_options'] = array(
     'lunara_dispatch_max_tokens'  => 4096,
     'lunara_dispatch_openai_model'=> 'gpt-4.1',
+    'lunara_dispatch_lock'        => '{"owner":"worker-123","heartbeat":1770000000,"expires":' . ( time() + 300 ) . '}',
     'lunara_dispatch_last_run_report' => array(
         'timestamp_gmt'         => '2026-08-14 19:00:00',
         'success'               => true,
@@ -135,6 +136,7 @@ $automation_method = new ReflectionMethod( 'Lunara_Journal_Automation', 'dispatc
 $automation_method->setAccessible( true );
 
 foreach ( array( 'fast_desk' => $fast_method->invoke( null ), 'automation' => $automation_method->invoke( null ) ) as $surface => $state ) {
+    hub_assert( true === $state['running'], $surface . ' did not read the active atomic Dispatch option lock.' );
     hub_assert( 'openai' === $state['runtime']['provider'], $surface . ' lost the active runtime provider.' );
     hub_assert( 'gpt-5.4-mini' === $state['runtime']['model'], $surface . ' lost the active runtime model.' );
     hub_assert( 2200 === $state['runtime']['max_output_tokens'], $surface . ' returned the wrong runtime token cap.' );
@@ -152,6 +154,16 @@ foreach ( array( 'fast_desk' => $fast_method->invoke( null ), 'automation' => $a
     foreach ( array( 'must-not-escape', 'resp_private', 'source_body', 'api_key', 'prompt' ) as $secret ) {
         hub_assert( false === strpos( $encoded, $secret ), $surface . ' exposed disallowed report data: ' . $secret );
     }
+}
+
+$GLOBALS['hub_options']['lunara_dispatch_lock'] = '{"owner":"expired-worker","heartbeat":1,"expires":' . ( time() - 1 ) . '}';
+foreach ( array( 'fast_desk' => $fast_method->invoke( null ), 'automation' => $automation_method->invoke( null ) ) as $surface => $expired_lock_state ) {
+    hub_assert( false === $expired_lock_state['running'], $surface . ' treated an expired atomic Dispatch lock as active.' );
+}
+
+unset( $GLOBALS['hub_options']['lunara_dispatch_lock'] );
+foreach ( array( 'fast_desk' => $fast_method->invoke( null ), 'automation' => $automation_method->invoke( null ) ) as $surface => $legacy_lock_state ) {
+    hub_assert( true === $legacy_lock_state['running'], $surface . ' lost the legacy transient lock fallback.' );
 }
 
 $GLOBALS['hub_meta'][101500] = array(

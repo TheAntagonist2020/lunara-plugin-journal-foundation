@@ -128,15 +128,15 @@ Authentication is header-only. Send access keys with `Authorization: Bearer <tok
 
 - WordPress 6.4 or newer.
 - ACF Pro for the fully editable Journal field interface.
-- Lunara Dispatch 3.2.0 or newer for automated collection and Fast Desk runs; version 3.2.5 is required for the complete cost-safe OpenAI, source-packet fallback, and Hub telemetry contract.
+- Lunara Dispatch 3.2.5 or newer for Foundation 1.2.11 automated OpenAI collection, cost-safe Responses API requests, source-packet fallback, and complete Hub telemetry.
 - Journal protocol 1.x compatibility between Foundation and Dispatch.
 
 WordPress remains the authoritative runtime. The private GPT is the daily editorial interface. Notion is optional and is not required by Fast Journal Desk.
 
 ## Install order
 
-1. Replace the existing LUNARA Journal Foundation with version 1.2.11.
-2. Replace Lunara Dispatch Automation with version 3.2.5.
+1. Confirm Lunara Dispatch Automation 3.2.5 or newer is active. When upgrading an older paired stack, disable automated runs until Dispatch has been upgraded first.
+2. Replace the existing LUNARA Journal Foundation with version 1.2.11.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
 5. Keep the current GPT instructions; the 1.2.11 automation routes are separate from the Journal Editor Action schema.
