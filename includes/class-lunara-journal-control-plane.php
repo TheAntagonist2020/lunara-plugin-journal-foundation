@@ -59,7 +59,7 @@ final class Lunara_Journal_Control_Plane {
             'post_status'      => 'draft',
             'provider'         => $config['dispatch']['provider'] ?? 'openai',
             'models'           => $config['dispatch']['models'] ?? array(),
-            'max_tokens'       => (int) ( $config['dispatch']['max_tokens'] ?? 4096 ),
+            'max_tokens'       => (int) ( $config['dispatch']['max_tokens'] ?? Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS ),
             'sources'          => $config['sources'] ?? array(),
             'compiled_system_prompt' => Lunara_Journal_Prompt_Compiler::dispatch_system_prompt( $config ),
             'compiled_user_directive_prompt' => Lunara_Journal_Prompt_Compiler::dispatch_user_directive_prompt( $config ),
@@ -188,7 +188,7 @@ final class Lunara_Journal_Control_Plane {
         $config['dispatch']['enabled'] = ! empty( $_POST['dispatch_enabled'] );
         $config['dispatch']['schedule'] = isset( $_POST['dispatch_schedule'] ) ? sanitize_key( wp_unslash( $_POST['dispatch_schedule'] ) ) : 'daily';
         $config['dispatch']['provider'] = isset( $_POST['dispatch_provider'] ) ? sanitize_key( wp_unslash( $_POST['dispatch_provider'] ) ) : 'openai';
-        $config['dispatch']['max_tokens'] = isset( $_POST['dispatch_max_tokens'] ) ? (int) $_POST['dispatch_max_tokens'] : 4096;
+        $config['dispatch']['max_tokens'] = isset( $_POST['dispatch_max_tokens'] ) ? (int) $_POST['dispatch_max_tokens'] : Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS;
         foreach ( array( 'openai', 'claude', 'gemini', 'grok' ) as $provider ) {
             $field = 'dispatch_model_' . $provider;
             if ( isset( $_POST[ $field ] ) ) {
@@ -266,6 +266,9 @@ final class Lunara_Journal_Control_Plane {
         $versions = array_reverse( Lunara_Journal_Config_Repository::get_versions() );
         $summary = Lunara_Journal_Prompt_Compiler::public_summary( $config );
         $compiled = Lunara_Journal_Prompt_Compiler::dispatch_system_prompt( $config );
+        $runtime = self::get_dispatch_runtime_config();
+        $runtime_provider = isset( $runtime['provider'] ) ? (string) $runtime['provider'] : 'openai';
+        $runtime_model = isset( $runtime['models'][ $runtime_provider ] ) ? (string) $runtime['models'][ $runtime_provider ] : '';
         ?>
         <div class="wrap lunara-control-plane">
             <h1>LUNARA Journal Control Plane</h1>
@@ -276,7 +279,7 @@ final class Lunara_Journal_Control_Plane {
             <h2>Active Version</h2>
             <table class="widefat striped" style="max-width:1100px"><tbody>
                 <tr><th>Configuration</th><td><?php echo esc_html( $summary['config_version'] ); ?> (version ID <?php echo esc_html( Lunara_Journal_Config_Repository::get_active_version_id() ); ?>)</td></tr>
-                <tr><th>Dispatch Runtime</th><td><?php echo esc_html( $summary['provider'] . ' / ' . $summary['schedule'] . ' / journal draft' ); ?></td></tr>
+                <tr><th>Dispatch Runtime</th><td><?php echo esc_html( $runtime_provider . ' / ' . $runtime_model . ' / ' . (int) $runtime['max_tokens'] . ' max output tokens / ' . $summary['schedule'] . ' / journal draft' ); ?></td></tr>
                 <tr><th>Sources Enabled</th><td><?php echo esc_html( (string) $summary['sources_enabled'] ); ?></td></tr>
                 <tr><th>Notion Mirror</th><td><?php echo ! empty( $config['notion']['sync_enabled'] ) ? 'Enabled' : 'Disabled'; ?>; last sync: <?php echo esc_html( get_option( Lunara_Journal_Notion_Client::OPTION_LAST, 'never' ) ); ?></td></tr>
                 <tr><th>GPT Publishing</th><td><?php echo ! empty( $config['chatgpt']['may_publish'] ) ? 'Enabled with explicit publish action' : 'Disabled'; ?></td></tr>
@@ -291,8 +294,9 @@ final class Lunara_Journal_Control_Plane {
                     <tr><th scope="row">GPT Publishing</th><td><label><input type="checkbox" name="chatgpt_may_publish" value="1" <?php checked( ! empty( $config['chatgpt']['may_publish'] ) ); ?> /> Allow the private LUNARA GPT to publish a single validated Journal entry when you explicitly instruct it to publish.</label><p class="description">This does not enable bulk publishing or scheduling. The draft must pass validation, including the featured-image guard.</p></td></tr>
                     <tr><th scope="row">Schedule</th><td><?php self::select_field( 'dispatch_schedule', $config['dispatch']['schedule'], array( 'daily' => 'Daily', 'twice_daily' => 'Twice Daily', 'every_4_hours' => 'Every 4 Hours', 'every_2_hours' => 'Every 2 Hours' ) ); ?></td></tr>
                     <tr><th scope="row">Provider</th><td><?php self::select_field( 'dispatch_provider', $config['dispatch']['provider'], array( 'openai' => 'OpenAI', 'claude' => 'Claude', 'gemini' => 'Gemini', 'grok' => 'Grok' ) ); ?></td></tr>
-                    <tr><th scope="row">Max Tokens</th><td><input type="number" min="1024" max="16000" name="dispatch_max_tokens" value="<?php echo esc_attr( (string) $config['dispatch']['max_tokens'] ); ?>" /></td></tr>
-                    <?php foreach ( array( 'openai' => 'OpenAI Model', 'claude' => 'Claude Model', 'gemini' => 'Gemini Model', 'grok' => 'Grok Model' ) as $key => $label ) : ?>
+                    <tr><th scope="row">Max Output Tokens</th><td><input type="number" min="1024" max="<?php echo esc_attr( (string) Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS ); ?>" name="dispatch_max_tokens" value="<?php echo esc_attr( (string) $config['dispatch']['max_tokens'] ); ?>" /><p class="description">Dispatch 3.2.5 caps each generated response at 2,200 output tokens.</p></td></tr>
+                    <tr><th scope="row">OpenAI Model</th><td><?php self::select_field( 'dispatch_model_openai', $config['dispatch']['models']['openai'] ?? Lunara_Journal_Config_Schema::DEFAULT_OPENAI_MODEL, array( 'gpt-5.4-mini' => 'GPT-5.4 mini', 'gpt-5.4-nano' => 'GPT-5.4 nano' ) ); ?><p class="description">Only the cost-safe Dispatch 3.2.5 model allowlist is available.</p></td></tr>
+                    <?php foreach ( array( 'claude' => 'Claude Model', 'gemini' => 'Gemini Model', 'grok' => 'Grok Model' ) as $key => $label ) : ?>
                     <tr><th scope="row"><?php echo esc_html( $label ); ?></th><td><input type="text" class="regular-text" name="dispatch_model_<?php echo esc_attr( $key ); ?>" value="<?php echo esc_attr( $config['dispatch']['models'][ $key ] ?? '' ); ?>" /></td></tr>
                     <?php endforeach; ?>
                 </tbody></table>

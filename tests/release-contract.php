@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.10.
+ * Executable stabilization contracts for Journal Foundation 1.2.11.
  *
  * Run: php tests/release-contract.php
  */
@@ -39,6 +39,7 @@ $schema = contract_file( $root, 'includes/class-lunara-journal-config-schema.php
 $protocol = contract_file( $root, 'includes/class-lunara-journal-protocol.php' );
 $repository = contract_file( $root, 'includes/class-lunara-journal-config-repository.php' );
 $fast_desk = contract_file( $root, 'includes/class-lunara-journal-fast-desk.php' );
+$automation = contract_file( $root, 'includes/class-lunara-journal-automation.php' );
 $control_plane = contract_file( $root, 'includes/class-lunara-journal-control-plane.php' );
 $notion_client = contract_file( $root, 'includes/class-lunara-journal-notion-client.php' );
 $provenance = contract_file( $root, 'includes/class-lunara-journal-provenance.php' );
@@ -55,14 +56,30 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_assert( ! preg_match( '/(?<![0-9.])1\.2\.1(?![0-9.])/', $release_surface ), 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.10', 'Plugin header must report 1.2.10.' );
-contract_contains( $main, "const VERSION             = '1.2.10';", 'Runtime Foundation version must be 1.2.10.' );
-contract_contains( $readme, 'Version: 1.2.10', 'README must report Foundation 1.2.10.' );
+contract_contains( $main, 'Version: 1.2.11', 'Plugin header must report 1.2.11.' );
+contract_contains( $main, "const VERSION             = '1.2.11';", 'Runtime Foundation version must be 1.2.11.' );
+contract_contains( $readme, 'Version: 1.2.11', 'README must report Foundation 1.2.11.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.2.10"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.10.' );
+    contract_contains( $openapi_release, '"version": "1.2.11"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.11.' );
 }
+contract_contains( $schema, "const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';", 'The Control Plane must default to the cost-safe OpenAI model.' );
+contract_contains( $schema, "array( 'gpt-5.4-mini', 'gpt-5.4-nano' )", 'The Control Plane must use the Dispatch 3.2.5 OpenAI allowlist.' );
+contract_contains( $schema, 'const MAX_OUTPUT_TOKENS    = 2200;', 'The Control Plane must share the 2,200-token output cap.' );
+contract_not_contains( $schema, "'gpt-4o'", 'Stale OpenAI defaults must not remain in the active schema.' );
+contract_contains( $control_plane, 'Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS', 'Control Plane runtime and form defaults must use the safe token cap.' );
+contract_contains( $control_plane, "'gpt-5.4-mini' => 'GPT-5.4 mini'", 'Control Plane UI must expose the safe OpenAI allowlist.' );
+
+foreach ( array( 'Fast Desk' => $fast_desk, 'Automation' => $automation ) as $surface => $source ) {
+    foreach ( array( 'runtime', 'source_budget', 'requested_model', 'effective_model', 'usage_reported', 'input_tokens', 'cached_input_tokens', 'output_tokens', 'estimated_cost_usd', 'fallback_used', 'error_code', 'processed_source_items', 'deferred_source_items', 'source_radar_items', 'source_packet_drafts' ) as $field ) {
+        contract_contains( $source, "'" . $field . "'", $surface . ' must expose safe Dispatch telemetry field ' . $field . '.' );
+    }
+    contract_not_contains( $source, "['response_id']", $surface . ' must not expose provider response identifiers.' );
+    contract_not_contains( $source, "['api_key']", $surface . ' must not expose provider credentials.' );
+}
+contract_contains( $fast_desk, "'generation'        => array(", 'Fast Desk draft summaries must expose bounded generation state.' );
+contract_contains( $fast_desk, "'source_packet' => \$source_packet", 'Fast Desk draft summaries must identify source-packet fallbacks.' );
 contract_contains( $ingest, 'normalize_source_published_at', 'Draft ingest must normalize transport publication dates before ACF readback.' );
 contract_contains( $ingest, 'normalize_content_paragraphs', 'Draft ingest must add editable paragraph structure to long unstructured content.' );
 contract_contains( $image_sideload, 'PREFERRED_REMOTE_WIDTH = 1920', 'Journal image ingest must request the preferred wide editorial source width.' );

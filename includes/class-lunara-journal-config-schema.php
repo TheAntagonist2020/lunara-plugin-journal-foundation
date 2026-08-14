@@ -7,6 +7,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Lunara_Journal_Config_Schema {
+    const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
+    const MAX_OUTPUT_TOKENS    = 2200;
+
+    public static function allowed_openai_models() {
+        return array( 'gpt-5.4-mini', 'gpt-5.4-nano' );
+    }
+
     public static function default_config( array $legacy = array() ) {
         $now = function_exists( 'current_time' ) ? current_time( 'mysql', true ) : gmdate( 'Y-m-d H:i:s' );
 
@@ -92,9 +99,9 @@ final class Lunara_Journal_Config_Schema {
                 'target_post_type' => 'journal',
                 'post_status'      => 'draft',
                 'provider'         => self::string_from_legacy( $legacy, 'lunara_dispatch_provider', 'openai' ),
-                'max_tokens'       => self::int_from_legacy( $legacy, 'lunara_dispatch_max_tokens', 4096, 1024, 16000 ),
+                'max_tokens'       => self::int_from_legacy( $legacy, 'lunara_dispatch_max_tokens', self::MAX_OUTPUT_TOKENS, 1024, self::MAX_OUTPUT_TOKENS ),
                 'models'           => array(
-                    'openai' => self::string_from_legacy( $legacy, 'lunara_dispatch_openai_model', 'gpt-4o' ),
+                    'openai' => self::sanitize_openai_model( self::string_from_legacy( $legacy, 'lunara_dispatch_openai_model', self::DEFAULT_OPENAI_MODEL ) ),
                     'claude' => self::string_from_legacy( $legacy, 'lunara_dispatch_claude_model', 'claude-opus-4-5' ),
                     'gemini' => self::string_from_legacy( $legacy, 'lunara_dispatch_gemini_model', 'gemini-2.5-pro' ),
                     'grok'   => self::string_from_legacy( $legacy, 'lunara_dispatch_grok_model', 'grok-4' ),
@@ -141,7 +148,14 @@ final class Lunara_Journal_Config_Schema {
         $config['dispatch']['post_status']      = 'draft';
         $config['dispatch']['provider'] = self::sanitize_choice( $config['dispatch']['provider'], array( 'openai', 'claude', 'gemini', 'grok' ), 'openai' );
         $config['dispatch']['schedule'] = self::sanitize_choice( $config['dispatch']['schedule'], array( 'daily', 'twice_daily', 'every_4_hours', 'every_2_hours' ), 'daily' );
-        $config['dispatch']['max_tokens'] = max( 1024, min( 16000, (int) $config['dispatch']['max_tokens'] ) );
+        $config['dispatch']['max_tokens'] = max( 1024, min( self::MAX_OUTPUT_TOKENS, (int) $config['dispatch']['max_tokens'] ) );
+        if ( ! isset( $config['dispatch']['models'] ) || ! is_array( $config['dispatch']['models'] ) ) {
+            $config['dispatch']['models'] = $default['dispatch']['models'];
+        }
+        $config['dispatch']['models']['openai'] = self::sanitize_openai_model( isset( $config['dispatch']['models']['openai'] ) ? $config['dispatch']['models']['openai'] : self::DEFAULT_OPENAI_MODEL );
+        foreach ( array( 'claude', 'gemini', 'grok' ) as $provider ) {
+            $config['dispatch']['models'][ $provider ] = self::sanitize_text( isset( $config['dispatch']['models'][ $provider ] ) ? $config['dispatch']['models'][ $provider ] : $default['dispatch']['models'][ $provider ] );
+        }
         $config['dispatch']['enabled'] = ! empty( $config['dispatch']['enabled'] );
         $config['sources'] = self::normalize_sources( isset( $config['sources'] ) && is_array( $config['sources'] ) ? $config['sources'] : array() );
         $config['chatgpt']['live_configuration_required'] = true;
@@ -243,6 +257,11 @@ final class Lunara_Journal_Config_Schema {
     private static function sanitize_choice( $value, array $allowed, $default ) {
         $value = self::sanitize_key( $value );
         return in_array( $value, $allowed, true ) ? $value : $default;
+    }
+
+    private static function sanitize_openai_model( $value ) {
+        $value = self::sanitize_text( $value );
+        return in_array( $value, self::allowed_openai_models(), true ) ? $value : self::DEFAULT_OPENAI_MODEL;
     }
 
     private static function sanitize_key( $value ) {
