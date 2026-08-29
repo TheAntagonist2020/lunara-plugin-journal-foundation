@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php: ['8.2', '8.3']
+        php: ['7.4', '8.2', '8.3']
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +31,12 @@ jobs:
       - name: WordPress behavior contract
         run: php tests/wp-behavior-contract.php
 
+      - name: Control Plane source rows runtime
+        run: php tests/control-plane-sources-runtime.php
+
+      - name: Site Studio workflow handoff runtime
+        run: php tests/site-studio-workflow-runtime.php
+
       - name: Journal Automation contract
         run: php tests/automation-contract.php
 
@@ -39,6 +45,9 @@ jobs:
 
       - name: Needs Attention runtime
         run: php tests/automation-attention-runtime.php
+
+      - name: Hub telemetry runtime
+        run: php tests/hub-telemetry-runtime.php
 
       - name: OpenAPI JSON syntax
         run: |

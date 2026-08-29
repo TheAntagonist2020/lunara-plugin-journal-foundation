@@ -1,8 +1,14 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.12
+Version: 1.2.13
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
+
+## Journal Workflow handoff and labeled sources
+
+Foundation 1.2.13 contributes a capability-gated **Journal Workflow** destination to Lunara Site Studio when the theme registry is available. The contribution is inert without that registry and always hands administrators to the canonical WordPress tool at **Journal → Control Plane**. Its status is deliberately minimal: availability, validity, last activation time, enabled-source count, and the protected administrative URL. It never returns source URLs or labels, prompts, banned phrases, Notion identifiers, credentials, bridge tokens, raw provider errors, or full configuration.
+
+The Control Plane now edits sources as recognizable labeled rows rather than raw JSON. Each row has an immutable server-owned ID, enabled state, source name, HTTP(S) URL, maximum item count from 1–50, and priority from 1–10. Unsafe schemes, malformed rows, duplicate IDs, duplicate normalized URLs, and out-of-range values are rejected before any immutable version or Notion setting is written. Invalid rows are retained briefly for the submitting WordPress user only. Successful changes continue through the single versioned `create_and_activate()` repository path, and removing a source or restoring a prior version requires confirmation.
 
 ## Fast Journal Desk
 
@@ -132,7 +138,7 @@ Authentication is header-only. Send access keys with `Authorization: Bearer <tok
 
 - WordPress 6.4 or newer.
 - ACF Pro for the fully editable Journal field interface.
-- Lunara Dispatch 3.2.5 or newer for Foundation 1.2.12 automated OpenAI collection, cost-safe Responses API requests, source-packet fallback, and complete Hub telemetry.
+- Lunara Dispatch 3.2.5 or newer for Foundation 1.2.13 automated OpenAI collection, cost-safe Responses API requests, source-packet fallback, and complete Hub telemetry.
 - Journal protocol 1.x compatibility between Foundation and Dispatch.
 
 WordPress remains the authoritative runtime. The private GPT is the daily editorial interface. Notion is optional and is not required by Fast Journal Desk.
@@ -140,8 +146,8 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 ## Install order
 
 1. Confirm Lunara Dispatch Automation 3.2.5 or newer is active. When upgrading an older paired stack, disable automated runs until Dispatch has been upgraded first.
-2. Replace the existing LUNARA Journal Foundation with version 1.2.12.
+2. Replace the existing LUNARA Journal Foundation with version 1.2.13.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
-5. Keep the current GPT instructions; the 1.2.12 automation routes are separate from the Journal Editor Action schema.
+5. Keep the current GPT instructions; the 1.2.13 automation routes are separate from the Journal Editor Action schema.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.

@@ -19,8 +19,7 @@ final class Lunara_Journal_Config_Repository {
 
         $legacy = Lunara_Journal_Migration::collect_legacy_settings();
         $config = Lunara_Journal_Config_Schema::sanitize_config( Lunara_Journal_Config_Schema::default_config( $legacy ) );
-        $version = self::create_version( $config, 'Initial active Control Plane version.', 'system' );
-        self::activate_version( $version['id'], 'system' );
+        self::create_and_activate( $config, 'Initial active Control Plane version.', 'system' );
     }
 
     public static function get_versions() {
@@ -59,7 +58,7 @@ final class Lunara_Journal_Config_Repository {
         return Lunara_Journal_Config_Schema::sanitize_config( $version['config'] );
     }
 
-    public static function create_version( array $config, $changelog, $actor = '' ) {
+    private static function create_version( array $config, $changelog, $actor = '' ) {
         $versions = self::get_versions();
         $next_id = 1;
         foreach ( $versions as $existing ) {
@@ -81,11 +80,13 @@ final class Lunara_Journal_Config_Repository {
             'config'         => $config,
         );
         $versions[] = $version;
-        update_option( self::OPTION_VERSIONS, $versions, false );
+        if ( ! update_option( self::OPTION_VERSIONS, $versions, false ) ) {
+            return new WP_Error( 'lunara_config_storage_failed', 'Configuration version could not be stored.' );
+        }
         return $version;
     }
 
-    public static function activate_version( $id, $actor = '' ) {
+    private static function activate_version( $id, $actor = '' ) {
         $id = (int) $id;
         $versions = self::get_versions();
         $found = false;
@@ -110,16 +111,37 @@ final class Lunara_Journal_Config_Repository {
             return new WP_Error( 'lunara_missing_config_version', 'Configuration version not found.' );
         }
 
-        update_option( self::OPTION_VERSIONS, $versions, false );
-        update_option( self::OPTION_ACTIVE, $id, false );
+        if ( ! update_option( self::OPTION_VERSIONS, $versions, false ) ) {
+            return new WP_Error( 'lunara_config_activation_failed', 'Configuration version status could not be activated.' );
+        }
+        if ( ! update_option( self::OPTION_ACTIVE, $id, false ) ) {
+            return new WP_Error( 'lunara_config_activation_failed', 'The active configuration pointer could not be updated.' );
+        }
         do_action( 'lunara_journal_control_plane_activated', $id, self::get_active_config() );
         return true;
     }
 
     public static function create_and_activate( array $config, $changelog, $actor = '' ) {
+        $versions_before = self::get_versions();
+        $active_before = self::get_active_version_id();
+        $validation = Lunara_Journal_Config_Schema::validate_config( $config );
+        if ( empty( $validation['valid'] ) ) {
+            return new WP_Error( 'lunara_invalid_config', implode( ' ', $validation['errors'] ), $validation );
+        }
+
+        $config = Lunara_Journal_Config_Schema::sanitize_config( $config );
+        $validation = Lunara_Journal_Config_Schema::validate_config( $config );
+        if ( empty( $validation['valid'] ) ) {
+            return new WP_Error( 'lunara_invalid_config', implode( ' ', $validation['errors'] ), $validation );
+        }
+
         $version = self::create_version( $config, $changelog, $actor );
+        if ( is_wp_error( $version ) ) {
+            return $version;
+        }
         $activated = self::activate_version( $version['id'], $actor );
         if ( is_wp_error( $activated ) ) {
+            self::restore_repository_state( $versions_before, $active_before, $version );
             return $activated;
         }
         return self::get_version( $version['id'] );
@@ -136,6 +158,54 @@ final class Lunara_Journal_Config_Repository {
     public static function semantic_config_version_for_id( $id ) {
         $patch = max( 0, (int) $id - 1 );
         return '1.0.' . $patch;
+    }
+
+    private static function restore_repository_state( array $versions, $active_id, array $attempted_version ) {
+        if ( self::get_active_version_id() !== (int) $active_id ) {
+            return false;
+        }
+        $current = self::get_versions();
+        if ( count( $current ) !== count( $versions ) + 1 || empty( $attempted_version['id'] ) ) {
+            return false;
+        }
+        $expected = array();
+        foreach ( $versions as $version ) {
+            if ( ! is_array( $version ) || ! isset( $version['id'] ) ) {
+                return false;
+            }
+            $expected[ (int) $version['id'] ] = $version;
+        }
+        $attempted_id = (int) $attempted_version['id'];
+        $attempted_seen = false;
+        foreach ( $current as $version ) {
+            if ( ! is_array( $version ) || ! isset( $version['id'] ) ) {
+                return false;
+            }
+            $id = (int) $version['id'];
+            $comparison = $version;
+            unset( $comparison['status'], $comparison['activated_at_gmt'], $comparison['activated_by'] );
+            if ( $id === $attempted_id ) {
+                $attempted_comparison = $attempted_version;
+                unset( $attempted_comparison['status'], $attempted_comparison['activated_at_gmt'], $attempted_comparison['activated_by'] );
+                if ( $attempted_seen || $comparison !== $attempted_comparison ) {
+                    return false;
+                }
+                $attempted_seen = true;
+                continue;
+            }
+            if ( ! isset( $expected[ $id ] ) ) {
+                return false;
+            }
+            $expected_comparison = $expected[ $id ];
+            unset( $expected_comparison['status'], $expected_comparison['activated_at_gmt'], $expected_comparison['activated_by'] );
+            if ( $comparison !== $expected_comparison ) {
+                return false;
+            }
+        }
+        if ( ! $attempted_seen ) {
+            return false;
+        }
+        return update_option( self::OPTION_VERSIONS, $versions, false );
     }
 
     private static function clean_actor( $actor ) {

@@ -91,7 +91,8 @@ class WP_REST_Request implements ArrayAccess {
     public function get_route() { return $this->route; }
     public function get_method() { return $this->method; }
     public function offsetExists( $offset ): bool { return isset( $this->params[ $offset ] ); }
-    public function offsetGet( $offset ): mixed { return $this->params[ $offset ] ?? null; }
+    #[\ReturnTypeWillChange]
+    public function offsetGet( $offset ) { return $this->params[ $offset ] ?? null; }
     public function offsetSet( $offset, $value ): void { $this->params[ $offset ] = $value; }
     public function offsetUnset( $offset ): void { unset( $this->params[ $offset ] ); }
 }
