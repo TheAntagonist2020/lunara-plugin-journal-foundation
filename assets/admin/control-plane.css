@@ -1,0 +1,72 @@
+.lunara-journal-sources {
+	max-width: 1100px;
+	margin: 2rem 0;
+}
+
+.lunara-source-rows {
+	display: grid;
+	gap: 1rem;
+	margin-top: 1rem;
+}
+
+.lunara-source-row {
+	margin: 0;
+	padding: 1rem;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.lunara-source-row legend {
+	padding: 0 0.35rem;
+	font-size: 1rem;
+	font-weight: 600;
+}
+
+.lunara-source-identity {
+	margin-top: 0;
+	color: #50575e;
+}
+
+.lunara-source-grid {
+	display: grid;
+	grid-template-columns: minmax(10rem, 1fr) minmax(8rem, 0.6fr) minmax(8rem, 0.6fr);
+	gap: 1rem;
+	align-items: end;
+}
+
+.lunara-source-field {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.lunara-source-field--enabled {
+	align-self: center;
+}
+
+.lunara-source-field--url {
+	grid-column: span 2;
+}
+
+.lunara-source-field input[type="text"],
+.lunara-source-field input[type="url"],
+.lunara-source-field input[type="number"] {
+	width: 100%;
+}
+
+.lunara-source-errors {
+	margin: 1rem 0 0;
+	padding: 0.75rem 0.75rem 0.75rem 2rem;
+	border-left: 4px solid #d63638;
+	background: #fcf0f1;
+}
+
+@media (max-width: 782px) {
+	.lunara-source-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.lunara-source-field--url {
+		grid-column: auto;
+	}
+}

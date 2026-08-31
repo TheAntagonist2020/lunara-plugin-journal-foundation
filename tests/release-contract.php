@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.2.12.
+ * Executable stabilization contracts for Journal Foundation 1.2.13.
  *
  * Run: php tests/release-contract.php
  */
@@ -34,6 +34,42 @@ function contract_not_contains( $haystack, $needle, $message ) {
     contract_assert( false === strpos( $haystack, $needle ), $message );
 }
 
+function contract_deployignore_matches( $rules, $path ) {
+    $path = ltrim( str_replace( '\\', '/', (string) $path ), '/' );
+    $ignored = false;
+    foreach ( preg_split( '/\R/', (string) $rules ) as $line ) {
+        $line = trim( $line );
+        if ( '' === $line || '#' === substr( $line, 0, 1 ) ) {
+            continue;
+        }
+        $negated = '!' === substr( $line, 0, 1 );
+        if ( $negated ) {
+            $line = substr( $line, 1 );
+        }
+        $line = ltrim( $line, '/' );
+        $directory = '/' === substr( $line, -1 );
+        $line = rtrim( $line, '/' );
+        if ( '' === $line ) {
+            continue;
+        }
+        $has_slash = false !== strpos( $line, '/' );
+        $pattern = preg_quote( $line, '#' );
+        $pattern = str_replace( '\*\*/', '(?:.*/)?', $pattern );
+        $pattern = str_replace( '\*\*', '.*', $pattern );
+        $pattern = str_replace( '\*', '[^/]*', $pattern );
+        $pattern = str_replace( '\?', '[^/]', $pattern );
+        if ( $has_slash ) {
+            $pattern = '#^' . $pattern . ( $directory ? '(?:/.*)?' : '' ) . '$#';
+        } else {
+            $pattern = '#(?:^|/)' . $pattern . '(?:$|/)#';
+        }
+        if ( preg_match( $pattern, $path ) ) {
+            $ignored = ! $negated;
+        }
+    }
+    return $ignored;
+}
+
 $main = contract_file( $root, 'lunara-journal-foundation.php' );
 $schema = contract_file( $root, 'includes/class-lunara-journal-config-schema.php' );
 $protocol = contract_file( $root, 'includes/class-lunara-journal-protocol.php' );
@@ -41,6 +77,12 @@ $repository = contract_file( $root, 'includes/class-lunara-journal-config-reposi
 $fast_desk = contract_file( $root, 'includes/class-lunara-journal-fast-desk.php' );
 $automation = contract_file( $root, 'includes/class-lunara-journal-automation.php' );
 $control_plane = contract_file( $root, 'includes/class-lunara-journal-control-plane.php' );
+$site_studio = contract_file( $root, 'includes/class-lunara-journal-site-studio.php' );
+$control_plane_js = contract_file( $root, 'assets/admin/control-plane.js' );
+$control_plane_css = contract_file( $root, 'assets/admin/control-plane.css' );
+$deployignore = contract_file( $root, '.deployignore' );
+$ci_workflow = contract_file( $root, '.github/workflows/lint.yml' );
+$wp_behavior_contract = contract_file( $root, 'tests/wp-behavior-contract.php' );
 $notion_client = contract_file( $root, 'includes/class-lunara-journal-notion-client.php' );
 $provenance = contract_file( $root, 'includes/class-lunara-journal-provenance.php' );
 $ingest = contract_file( $root, 'includes/class-lunara-journal-ingest.php' );
@@ -56,13 +98,99 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_assert( ! preg_match( '/(?<![0-9.])1\.2\.1(?![0-9.])/', $release_surface ), 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.2.12', 'Plugin header must report 1.2.12.' );
-contract_contains( $main, "const VERSION             = '1.2.12';", 'Runtime Foundation version must be 1.2.12.' );
-contract_contains( $readme, 'Version: 1.2.12', 'README must report Foundation 1.2.12.' );
+contract_contains( $main, 'Version: 1.2.13', 'Plugin header must report 1.2.13.' );
+contract_contains( $main, "define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.2.13' );", 'Global Foundation version must report 1.2.13.' );
+contract_contains( $main, "const VERSION             = '1.2.13';", 'Runtime Foundation version must be 1.2.13.' );
+contract_not_contains( $main, '1.2.12', 'Runtime release identity must not retain Foundation 1.2.12.' );
+contract_contains( $readme, 'Version: 1.2.13', 'README must report Foundation 1.2.13.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.2.12"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.12.' );
+    contract_contains( $openapi_release, '"version": "1.2.13"', ucfirst( $label ) . ' OpenAPI release version must report 1.2.13.' );
+}
+
+// Source rows are labeled, strict, retained per user on rejection, and save
+// only through the immutable repository after validation.
+contract_not_contains( $control_plane, 'sources_json', 'The raw source JSON editor must not remain.' );
+foreach ( array( 'Source name', 'HTTP(S) URL', 'Maximum items', 'Priority', 'Add source', 'Remove source', 'Permanent ID' ) as $label ) {
+    contract_contains( $control_plane, $label, 'Missing recognizable source-row control: ' . $label . '.' );
+}
+contract_contains( $control_plane, 'prepare_source_submission', 'Source submissions must use the strict row parser.' );
+contract_contains( $control_plane, 'retain_source_stage', 'Rejected source rows must retain a user-bound stage.' );
+contract_contains( $control_plane, 'consume_source_stage', 'Retained source rows must be one-read.' );
+contract_contains( $control_plane, "const SOURCE_STAGE_TTL = 600;", 'Rejected source stages must expire after ten minutes.' );
+contract_contains( $control_plane, "'lunara_journal_control_plane_source_stage_' . \$user_id", 'Source stages must be bound to the submitting WordPress user.' );
+contract_contains( $control_plane, "check_admin_referer( 'lunara_journal_control_plane_save' )", 'Control Plane saves must retain nonce enforcement.' );
+$admin_save_start = strpos( $control_plane, 'public static function admin_save()' );
+$admin_save_end = strpos( $control_plane, 'private static function save_admin_submission', $admin_save_start );
+$admin_save = substr( $control_plane, $admin_save_start, $admin_save_end - $admin_save_start );
+$save_capability = strpos( $admin_save, 'current_user_can( self::CAPABILITY )' );
+$save_nonce = strpos( $admin_save, "check_admin_referer( 'lunara_journal_control_plane_save' )" );
+$save_delegate = strpos( $admin_save, 'self::save_admin_submission' );
+contract_assert( false !== $save_capability && false !== $save_nonce && false !== $save_delegate && $save_capability < $save_nonce && $save_nonce < $save_delegate, 'Capability then nonce must guard the Control Plane save before any candidate processing.' );
+$submission_start = strpos( $control_plane, 'private static function save_admin_submission' );
+$submission_end = strpos( $control_plane, 'private static function prepare_source_submission', $submission_start );
+$submission = substr( $control_plane, $submission_start, $submission_end - $submission_start );
+$repository_save = strpos( $submission, 'Lunara_Journal_Config_Repository::create_and_activate' );
+$notion_page_save = strpos( $submission, 'Lunara_Journal_Notion_Client::OPTION_PAGE_ID' );
+$notion_token_save = strpos( $submission, 'Lunara_Journal_Notion_Client::OPTION_TOKEN' );
+contract_assert( false !== $repository_save && false !== $notion_page_save && false !== $notion_token_save && $repository_save < $notion_page_save && $repository_save < $notion_token_save, 'Notion settings must remain untouched until immutable configuration activation succeeds.' );
+contract_contains( $repository, 'private static function create_version', 'Low-level version storage must not remain a public bypass.' );
+contract_contains( $repository, 'private static function activate_version', 'Low-level activation must not remain a public bypass.' );
+contract_contains( $repository, "\$validation = Lunara_Journal_Config_Schema::validate_config( \$config );", 'The immutable path must validate before storage.' );
+contract_contains( $repository, "self::create_and_activate( \$config, 'Initial active Control Plane version.', 'system' )", 'Default bootstrap must use the immutable activation path.' );
+contract_contains( $control_plane_js, 'window.confirm', 'Source removal and rollback must use recognizable confirmation.' );
+contract_contains( $control_plane, "'confirm_rollback'", 'Rollback must require a server-verified confirmation field.' );
+contract_contains( $control_plane, "'1' !== (string) wp_unslash( \$_POST['confirm_rollback'] )", 'Rollback must reject a missing or forged confirmation value.' );
+contract_contains( $control_plane, 'name="confirm_rollback" value="0"', 'Rollback confirmation must default to the safe non-confirmed value.' );
+contract_not_contains( $control_plane, 'name="confirm_rollback" value="1"', 'Initial rollback HTML must never arrive pre-confirmed.' );
+contract_contains( $control_plane_js, "confirmation.value = '1'", 'Only a positive client confirmation may arm the server-verified rollback field.' );
+contract_contains( $control_plane_css, '@media (max-width: 782px)', 'Labeled rows must stack at the WordPress mobile breakpoint.' );
+
+foreach ( array( 'control-plane-sources-runtime.php', 'site-studio-workflow-runtime.php', 'hub-telemetry-runtime.php' ) as $ci_runtime ) {
+    contract_contains( $ci_workflow, $ci_runtime, 'CI must execute ' . $ci_runtime . '.' );
+}
+contract_contains( $ci_workflow, "php: ['7.4', '8.2', '8.3']", 'CI must execute the advertised PHP 7.4 minimum alongside current PHP versions.' );
+contract_not_contains( $wp_behavior_contract, ': mixed', 'Runtime contracts must remain parseable on the advertised PHP 7.4 minimum.' );
+
+// Foundation contributes a safe handoff without depending on or writing into
+// the theme. The generic registry remains the only integration boundary.
+contract_contains( $main, "require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-site-studio.php'", 'Foundation must always load its inert Site Studio contribution.' );
+contract_contains( $main, 'Lunara_Journal_Site_Studio::bootstrap();', 'Foundation must register the optional registry filter.' );
+contract_contains( $site_studio, "add_filter( 'lunara_site_studio_surfaces'", 'Foundation must use the public Site Studio registry filter.' );
+contract_contains( $site_studio, "const SURFACE_ID = 'journal-workflow';", 'The canonical workflow surface ID must remain stable.' );
+contract_contains( $site_studio, "'owner'                 => 'plugin:lunara-journal-foundation'", 'Foundation must retain canonical workflow ownership.' );
+contract_contains( $site_studio, "'capability'            => Lunara_Journal_Control_Plane::CAPABILITY", 'The workflow handoff must retain manage-options capability ownership.' );
+contract_contains( $site_studio, 'lunara_journal_foundation_workflow_status', 'Foundation must expose a stable redacted status helper.' );
+foreach ( array( 'get_dispatch_runtime_config', 'rest_active_config', 'rest_compiled_config', 'rest_health', 'public_config', 'Lunara_Journal_Notion_Client', 'OPTION_ACCESS_PROFILES' ) as $forbidden_status_source ) {
+    contract_not_contains( $site_studio, $forbidden_status_source, 'Site Studio status must not read the private/full configuration source ' . $forbidden_status_source . '.' );
+}
+contract_not_contains( $site_studio, '::get_active_config(', 'Site Studio status must not call the bootstrapping active-config read.' );
+contract_not_contains( $site_studio, '::get_active_version(', 'Site Studio status must not call the bootstrapping active-version read.' );
+
+// Deployment excludes repository-only material but keeps every production
+// module and the new scoped UI assets.
+foreach ( array( '.deployignore', '.github', '.github/**', 'README.md', 'docs', 'docs/**', 'tests', 'tests/**', 'vendor', 'vendor/**', '.env', '.env.*' ) as $excluded ) {
+    contract_contains( $deployignore, $excluded, '.deployignore must exclude ' . $excluded . '.' );
+}
+foreach ( array( 'lunara-journal-foundation.php', 'includes', 'assets', 'openapi' ) as $production_path ) {
+    contract_assert( ! preg_match( '/^' . preg_quote( $production_path, '/' ) . '(?:\/\*\*)?$/m', $deployignore ), '.deployignore must not exclude production path ' . $production_path . '.' );
+}
+$production_files = array( 'lunara-journal-foundation.php' );
+foreach ( array( 'includes', 'assets', 'openapi' ) as $production_directory ) {
+    $iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $root . DIRECTORY_SEPARATOR . $production_directory, FilesystemIterator::SKIP_DOTS ) );
+    foreach ( $iterator as $file ) {
+        if ( $file->isFile() ) {
+            $production_files[] = str_replace( DIRECTORY_SEPARATOR, '/', substr( $file->getPathname(), strlen( $root ) + 1 ) );
+        }
+    }
+}
+sort( $production_files );
+foreach ( $production_files as $production_file ) {
+    contract_assert( ! contract_deployignore_matches( $deployignore, $production_file ), '.deployignore semantics must retain production artifact ' . $production_file . '.' );
+}
+foreach ( array( '.deployignore', '.github/workflows/lint.yml', 'README.md', 'docs/placeholder.md', 'tests/release-contract.php', 'vendor/autoload.php', '.env' ) as $repository_only_file ) {
+    contract_assert( contract_deployignore_matches( $deployignore, $repository_only_file ), '.deployignore semantics must exclude repository-only artifact ' . $repository_only_file . '.' );
 }
 contract_contains( $schema, "const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';", 'The Control Plane must default to the cost-safe OpenAI model.' );
 contract_contains( $schema, "array( 'gpt-5.4-mini', 'gpt-5.4-nano' )", 'The Control Plane must use the Dispatch 3.2.5 OpenAI allowlist.' );

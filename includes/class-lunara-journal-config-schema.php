@@ -183,10 +183,141 @@ final class Lunara_Journal_Config_Schema {
         if ( empty( $config['editorial']['formatting']['disallow_h2'] ) ) {
             $errors[] = 'Journal entries must disallow h2 headings.';
         }
+        if ( ! isset( $config['sources'] ) || ! is_array( $config['sources'] ) ) {
+            $errors[] = 'Sources must be submitted as rows.';
+        } else {
+            $source_validation = self::validate_sources( $config['sources'] );
+            foreach ( $source_validation['errors'] as $source_error ) {
+                $errors[] = 'Source row ' . ( (int) $source_error['row'] + 1 ) . ': ' . $source_error['message'];
+            }
+        }
         return array(
             'valid'  => empty( $errors ),
             'errors' => $errors,
         );
+    }
+
+    /**
+     * Validate canonical source rows without silently repairing input.
+     *
+     * @param array $sources Candidate canonical rows.
+     * @return array{valid:bool,errors:array<int,array{row:int,field:string,message:string}>}
+     */
+    public static function validate_sources( array $sources ) {
+        $errors = array();
+        $seen_ids = array();
+        $seen_urls = array();
+        $expected_keys = array( 'enabled', 'id', 'label', 'max', 'priority', 'url' );
+
+        foreach ( $sources as $index => $row ) {
+            $row_number = is_int( $index ) ? $index : count( $errors );
+            if ( ! is_array( $row ) ) {
+                $errors[] = self::source_error( $row_number, 'row', 'Each source must be a labeled row.' );
+                continue;
+            }
+
+            $actual_keys = array_keys( $row );
+            sort( $actual_keys );
+            if ( $expected_keys !== $actual_keys ) {
+                $errors[] = self::source_error( $row_number, 'row', 'Each source row must contain only ID, enabled, label, URL, max, and priority.' );
+            }
+
+            $id = isset( $row['id'] ) && is_scalar( $row['id'] ) ? trim( (string) $row['id'] ) : '';
+            if ( '' === $id || $id !== self::sanitize_key( $id ) || ! preg_match( '/^[a-z0-9][a-z0-9_-]*$/D', $id ) ) {
+                $errors[] = self::source_error( $row_number, 'id', 'Source ID is missing or invalid.' );
+            } elseif ( isset( $seen_ids[ $id ] ) ) {
+                $errors[] = self::source_error( $row_number, 'id', 'Source IDs must be unique.' );
+            } else {
+                $seen_ids[ $id ] = true;
+            }
+
+            if ( ! array_key_exists( 'enabled', $row ) || ! in_array( $row['enabled'], array( true, false, 1, 0, '1', '0' ), true ) ) {
+                $errors[] = self::source_error( $row_number, 'enabled', 'Enabled must be on or off.' );
+            }
+
+            $label = isset( $row['label'] ) && is_scalar( $row['label'] ) ? self::sanitize_text( $row['label'] ) : '';
+            if ( '' === $label ) {
+                $errors[] = self::source_error( $row_number, 'label', 'Source name is required.' );
+            }
+
+            $url = isset( $row['url'] ) && is_scalar( $row['url'] ) ? self::normalize_source_url( $row['url'] ) : '';
+            if ( '' === $url ) {
+                $errors[] = self::source_error( $row_number, 'url', 'Use a complete HTTP or HTTPS URL without credentials or fragments.' );
+            } elseif ( isset( $seen_urls[ $url ] ) ) {
+                $errors[] = self::source_error( $row_number, 'url', 'Source URLs must be unique.' );
+            } else {
+                $seen_urls[ $url ] = true;
+            }
+
+            if ( ! isset( $row['max'] ) || ! self::strict_integer_in_range( $row['max'], 1, 50 ) ) {
+                $errors[] = self::source_error( $row_number, 'max', 'Maximum items must be a whole number from 1 to 50.' );
+            }
+            if ( ! isset( $row['priority'] ) || ! self::strict_integer_in_range( $row['priority'], 1, 10 ) ) {
+                $errors[] = self::source_error( $row_number, 'priority', 'Priority must be a whole number from 1 to 10.' );
+            }
+        }
+
+        return array(
+            'valid'  => empty( $errors ),
+            'errors' => $errors,
+        );
+    }
+
+    /**
+     * Produce the stable URL used for storage and duplicate detection.
+     *
+     * @param mixed $value Candidate URL.
+     * @return string
+     */
+    public static function normalize_source_url( $value ) {
+        if ( ! is_scalar( $value ) ) {
+            return '';
+        }
+        $value = trim( (string) $value );
+        if ( '' === $value || 0 === strpos( $value, '//' ) || preg_match( '/[\x00-\x20\x7f<>"\'{}|^`]/', $value ) || false !== strpos( $value, '\\' ) ) {
+            return '';
+        }
+
+        $parts = function_exists( 'wp_parse_url' ) ? wp_parse_url( $value ) : parse_url( $value );
+        if ( ! is_array( $parts ) ) {
+            return '';
+        }
+        $scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
+        $raw_host = isset( $parts['host'] ) ? (string) $parts['host'] : '';
+        $bracketed_ipv6 = strlen( $raw_host ) > 2 && '[' === substr( $raw_host, 0, 1 ) && ']' === substr( $raw_host, -1 );
+        $host = strtolower( $bracketed_ipv6 ? substr( $raw_host, 1, -1 ) : rtrim( $raw_host, '.' ) );
+        if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || '' === $host || isset( $parts['user'] ) || isset( $parts['pass'] ) || isset( $parts['fragment'] ) ) {
+            return '';
+        }
+        if ( false !== strpos( $host, ':' ) ) {
+            if ( ! filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+                return '';
+            }
+        } elseif ( preg_match( '/[^a-z0-9.\-]/i', $host ) ) {
+            return '';
+        }
+
+        $has_port = isset( $parts['port'] );
+        $port = $has_port ? (int) $parts['port'] : 0;
+        if ( $has_port && ( $port < 1 || $port > 65535 ) ) {
+            return '';
+        }
+        if ( ( 'http' === $scheme && 80 === $port ) || ( 'https' === $scheme && 443 === $port ) ) {
+            $port = 0;
+        }
+
+        $path = isset( $parts['path'] ) ? (string) $parts['path'] : '/';
+        if ( '' === $path ) {
+            $path = '/';
+        }
+        if ( '/' !== substr( $path, 0, 1 ) || false !== strpos( $path, '\\' ) ) {
+            return '';
+        }
+        $query = isset( $parts['query'] ) && '' !== (string) $parts['query'] ? '?' . (string) $parts['query'] : '';
+        $host_for_url = false !== strpos( $host, ':' ) ? '[' . $host . ']' : $host;
+        $normalized = $scheme . '://' . $host_for_url . ( $port ? ':' . $port : '' ) . $path . $query;
+
+        return function_exists( 'esc_url_raw' ) ? esc_url_raw( $normalized, array( 'http', 'https' ) ) : $normalized;
     }
 
     public static function normalize_sources( array $sources ) {
@@ -194,6 +325,10 @@ final class Lunara_Journal_Config_Schema {
         $seen = array();
         foreach ( $sources as $row ) {
             if ( ! is_array( $row ) || empty( $row['url'] ) ) {
+                continue;
+            }
+            $url = self::normalize_source_url( $row['url'] );
+            if ( '' === $url ) {
                 continue;
             }
             $label = isset( $row['label'] ) ? (string) $row['label'] : (string) $row['url'];
@@ -211,13 +346,32 @@ final class Lunara_Journal_Config_Schema {
             $out[] = array(
                 'id'       => $id,
                 'label'    => self::sanitize_text( $label ),
-                'url'      => self::sanitize_url( $row['url'] ),
+                'url'      => $url,
                 'enabled'  => ! empty( $row['enabled'] ),
                 'max'      => isset( $row['max'] ) ? max( 1, min( 50, (int) $row['max'] ) ) : 10,
                 'priority' => isset( $row['priority'] ) ? max( 1, min( 10, (int) $row['priority'] ) ) : 5,
             );
         }
         return $out;
+    }
+
+    private static function source_error( $row, $field, $message ) {
+        return array(
+            'row'     => (int) $row,
+            'field'   => (string) $field,
+            'message' => (string) $message,
+        );
+    }
+
+    private static function strict_integer_in_range( $value, $minimum, $maximum ) {
+        if ( is_int( $value ) ) {
+            $integer = $value;
+        } elseif ( is_string( $value ) && preg_match( '/^\d+$/D', $value ) ) {
+            $integer = (int) $value;
+        } else {
+            return false;
+        }
+        return $integer >= $minimum && $integer <= $maximum;
     }
 
     public static function deep_merge( array $base, array $override ) {
