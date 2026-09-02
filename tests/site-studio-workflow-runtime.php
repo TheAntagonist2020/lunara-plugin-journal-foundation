@@ -46,7 +46,7 @@ class Lunara_Journal_Control_Plane {
 	public static function admin_path() { return 'edit.php?post_type=journal&page=' . self::MENU_SLUG; }
 	public static function admin_url() { return admin_url( self::admin_path() ); }
 }
-class Lunara_Journal_Foundation { const VERSION = '1.2.13'; }
+class Lunara_Journal_Foundation { const VERSION = '1.2.14'; }
 
 ss_assert( file_exists( dirname( __DIR__ ) . '/includes/class-lunara-journal-site-studio.php' ), 'The always-loaded Site Studio integration module must exist.' );
 require dirname( __DIR__ ) . '/includes/class-lunara-journal-site-studio.php';

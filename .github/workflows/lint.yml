@@ -49,6 +49,9 @@ jobs:
       - name: Hub telemetry runtime
         run: php tests/hub-telemetry-runtime.php
 
+      - name: Prompt compiler deck runtime
+        run: php tests/prompt-compiler-deck-runtime.php
+
       - name: OpenAPI JSON syntax
         run: |
           python3 - <<'PYEOF'

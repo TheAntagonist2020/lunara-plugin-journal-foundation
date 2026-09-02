@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.13
+Version: 1.2.14
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 

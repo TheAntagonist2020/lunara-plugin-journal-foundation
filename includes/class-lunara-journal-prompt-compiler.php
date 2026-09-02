@@ -53,6 +53,9 @@ final class Lunara_Journal_Prompt_Compiler {
         $lines[] = '- Output valid HTML only, no Markdown.';
         $lines[] = '- Separate entries with ' . self::text( $formatting['entry_separator'] ?? '<hr>' ) . '.';
         $lines[] = '- Start every entry with an original <h3> headline; that headline becomes the WordPress post title.';
+        $lines[] = '- Immediately after the <h3>, on its own line, write the deck as an HTML comment: <!-- LUNARA_DECK: ... -->. Plain text inside the comment, no tags.';
+        $lines[] = '- The deck is one or two sentences, 18 to 40 words, shown under the headline on the site. It is a tease, not a summary: name the tension, the stakes, or the thing the reader will not see coming, and leave it unresolved so the body has to be read. It must not repeat the <h3> and must not repeat or paraphrase the first sentence of the body.';
+        $lines[] = '- After the deck comment, write the body in <p> tags.';
         $lines[] = '- Never use <h2>.';
         $lines[] = '- Film titles in <em>.';
         $lines[] = '- Never use <strong> on people names.';
@@ -83,7 +86,7 @@ final class Lunara_Journal_Prompt_Compiler {
         }
         $selection = $config['editorial']['selection'] ?? array();
         $compiled = trim( sprintf(
-            "Analyze the following film news items and synthesize them into a selective Lunara Journal run.\n\nRules:\n- Separate entries with <hr>.\n- Do not use <h2>.\n- Start every entry with an original <h3> headline in Lunara's voice.\n- Film titles in <em>.\n- Prefer %d or fewer strong entries; never write more than %d.\n- Skip anything that does not earn its space.\n- If nothing earns a reader's time, output exactly: %s\n\nInput News Data:",
+            "Analyze the following film news items and synthesize them into a selective Lunara Journal run.\n\nRules:\n- Separate entries with <hr>.\n- Do not use <h2>.\n- Start every entry with an original <h3> headline in Lunara's voice.\n- Directly after the <h3>, write the deck as <!-- LUNARA_DECK: ... -->: one or two sentences, 18 to 40 words, a provocative tease into the entry that repeats neither the headline nor the first sentence of the body.\n- Film titles in <em>.\n- Prefer %d or fewer strong entries; never write more than %d.\n- Skip anything that does not earn its space.\n- If nothing earns a reader's time, output exactly: %s\n\nInput News Data:",
             (int) ( $selection['prefer_entries'] ?? 2 ),
             (int) ( $selection['max_entries'] ?? 3 ),
             (string) ( $selection['skip_marker'] ?? '<!-- LUNARA_SKIP: no reader-worthy items -->' )
