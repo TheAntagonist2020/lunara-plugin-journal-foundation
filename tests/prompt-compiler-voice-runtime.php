@@ -100,7 +100,8 @@ pv_assert( 1 === substr_count( $broken_prompt, 'Not this: ' ) && false === strpo
 
 /* 4. The user directive carries the per-entry close and the fan-first order. */
 $directive = Lunara_Journal_Prompt_Compiler::dispatch_user_directive_prompt( $default );
-pv_assert( false !== strpos( $directive, 'engagement question' ), 'User directive must require the per-entry engagement question.' );
+pv_assert( false !== strpos( $directive, 'engagement question' ) && false !== strpos( $directive, 'only when' ), 'User directive must make the engagement question conditional on a real fork.' );
+pv_assert( false !== strpos( $prompt, 'only when the entry has a genuine fork' ) && false === strpos( $prompt, 'end every entry with one engagement question' ), 'Compiled close must make the engagement question conditional, not mandatory.' );
 pv_assert( false !== strpos( $directive, 'Fan first, critic brain second' ), 'User directive must put the fan before the critic.' );
 pv_assert( false !== strpos( $directive, 'First person is allowed' ), 'User directive must permit first person.' );
 pv_assert( substr( rtrim( $directive ), -16 ) === 'Input News Data:', 'User directive must still end at the news-data boundary.' );

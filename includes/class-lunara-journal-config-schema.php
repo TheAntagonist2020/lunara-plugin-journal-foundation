@@ -119,7 +119,7 @@ final class Lunara_Journal_Config_Schema {
                         'Paragraph one that restates the source and saves the opinion for paragraph three. Flip it: opinion first, facts in service of it.',
                         'A last sentence that is just another sentence. Every entry lands.',
                     ),
-                    'engagement_close' => 'After the landing sentence, end every entry with one engagement question that forces the reader to pick a side on the specific tension the entry just argued. It should imply a right answer while leaving a genuinely interesting wrong one. Never a poll, never "what do you think?", never generic. Each entry becomes its own post, so each entry carries its own question.',
+                    'engagement_close' => 'The landing sentence is the close. Add one engagement question after it only when the entry has a genuine fork the reader could take the other side of: a question that implies a right answer while leaving a genuinely interesting wrong one. Expect that to be true for roughly one entry in three, not every entry. Never a poll, never "what do you think?", never a question manufactured because the entry needs an ending. If the landing sentence is the stronger close, stop there.',
                 ),
                 'selection' => array(
                     'prefer_entries' => 2,
