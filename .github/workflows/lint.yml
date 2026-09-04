@@ -37,6 +37,12 @@ jobs:
       - name: Site Studio workflow handoff runtime
         run: php tests/site-studio-workflow-runtime.php
 
+      - name: Journal voice compiler runtime
+        run: php tests/prompt-compiler-voice-runtime.php
+
+      - name: Validator house-tells runtime
+        run: php tests/validator-house-tells-runtime.php
+
       - name: Journal Automation contract
         run: php tests/automation-contract.php
 

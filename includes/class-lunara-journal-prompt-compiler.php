@@ -29,10 +29,24 @@ final class Lunara_Journal_Prompt_Compiler {
         $lines[] = '';
         $lines[] = 'VOICE:';
         $lines[] = self::text( isset( $voice['summary'] ) ? $voice['summary'] : '' );
+        if ( ! empty( $voice['register'] ) ) {
+            $lines[] = '';
+            $lines[] = 'REGISTER:';
+            $lines[] = self::text( $voice['register'] );
+        }
+        $principles = self::list_values( $voice['principles'] ?? array() );
+        if ( $principles ) {
+            $lines[] = '';
+            $lines[] = 'PRINCIPLES:';
+            foreach ( $principles as $rule ) {
+                $lines[] = '- ' . $rule;
+            }
+        }
         if ( ! empty( $voice['current_refinement'] ) ) {
             $lines[] = '';
             $lines[] = 'CURRENT DALTON VOICE / PROMPT REFINEMENT:';
             $lines[] = self::text( $voice['current_refinement'] );
+            $lines[] = 'Treat this note as the freshest editorial steering. It can tighten voice, selection, angle, and anti-patterns; it cannot override factual accuracy, attribution, HTML formatting, or the skip gate.';
         }
         $lines[] = '';
         $lines[] = 'SELECTION RULES:';
@@ -48,6 +62,50 @@ final class Lunara_Journal_Prompt_Compiler {
         foreach ( self::list_values( $voice['reader_value_test'] ?? array() ) as $rule ) {
             $lines[] = '- ' . $rule;
         }
+        $structure = self::list_values( $voice['structure'] ?? array() );
+        if ( $structure ) {
+            $lines[] = '';
+            $lines[] = 'STRUCTURE, FLEXIBLE BY STORY:';
+            foreach ( $structure as $rule ) {
+                $lines[] = '- ' . $rule;
+            }
+        }
+        $headline_rules = self::list_values( $voice['headline_rules'] ?? array() );
+        if ( $headline_rules ) {
+            $lines[] = '';
+            $lines[] = 'HEADLINES:';
+            foreach ( $headline_rules as $rule ) {
+                $lines[] = '- ' . $rule;
+            }
+        }
+        $examples = self::example_pairs( $voice['contrast_examples'] ?? array() );
+        if ( $examples ) {
+            $lines[] = '';
+            $lines[] = 'NOT THIS / THIS. Read the pairs for register, then write something specific:';
+            foreach ( $examples as $pair ) {
+                $lines[] = 'Not this: ' . $pair['not_this'];
+                $lines[] = 'This: ' . $pair['this'];
+            }
+        }
+        $drift = self::list_values( $voice['drift_catalog'] ?? array() );
+        if ( $drift ) {
+            $lines[] = '';
+            $lines[] = 'DRIFT TO CATCH BEFORE OUTPUT:';
+            foreach ( $drift as $rule ) {
+                $lines[] = '- ' . $rule;
+            }
+        }
+        $poison = self::list_values( $voice['expertise_poison_phrases'] ?? array() );
+        if ( $poison ) {
+            $lines[] = '';
+            $lines[] = 'CUT ON SIGHT. These announce that the writer is about to demonstrate intelligence or significance; the intelligence should be in what gets said, never in the throat-clear before it:';
+            $lines[] = implode( ' | ', $poison );
+        }
+        if ( ! empty( $voice['engagement_close'] ) ) {
+            $lines[] = '';
+            $lines[] = 'LANDING AND CLOSE:';
+            $lines[] = self::text( $voice['engagement_close'] );
+        }
         $lines[] = '';
         $lines[] = 'FORMATTING - CRITICAL:';
         $lines[] = '- Output valid HTML only, no Markdown.';
@@ -57,7 +115,7 @@ final class Lunara_Journal_Prompt_Compiler {
         $lines[] = '- Film titles in <em>.';
         $lines[] = '- Never use <strong> on people names.';
         $lines[] = '- No inline CSS, no classes, no divs, no bullet lists.';
-        $lines[] = '- Use ASCII-only publishable HTML.';
+        $lines[] = '- Use ASCII-only publishable HTML: straight quotes and apostrophes, two hyphens for a dash, three periods for an ellipsis.';
         $lines[] = '';
         $lines[] = 'REQUIRED BEFORE READY STATE:';
         foreach ( $requirements as $name => $required ) {
@@ -69,7 +127,7 @@ final class Lunara_Journal_Prompt_Compiler {
         $lines[] = 'BANNED LANGUAGE:';
         $lines[] = implode( ', ', self::list_values( $voice['banned_phrases'] ?? array() ) );
         $lines[] = '';
-        $lines[] = 'Do not write like a trade recap, a studio press kit, an awards consultant memo, or a content quota filler. Write like Dalton chose the item because it has a real charge.';
+        $lines[] = 'Do not write like a trade recap, a studio press kit, an awards consultant memo, or a content quota filler. Write like Dalton chose the item because it has a real charge, and write it the way he would say it out loud.';
 
         $compiled = trim( implode( "\n", array_filter( $lines, static function ( $line ) { return null !== $line; } ) ) );
         self::$system_prompt_cache[ $cache_key ] = $compiled;
@@ -83,7 +141,7 @@ final class Lunara_Journal_Prompt_Compiler {
         }
         $selection = $config['editorial']['selection'] ?? array();
         $compiled = trim( sprintf(
-            "Analyze the following film news items and synthesize them into a selective Lunara Journal run.\n\nRules:\n- Separate entries with <hr>.\n- Do not use <h2>.\n- Start every entry with an original <h3> headline in Lunara's voice.\n- Film titles in <em>.\n- Prefer %d or fewer strong entries; never write more than %d.\n- Skip anything that does not earn its space.\n- If nothing earns a reader's time, output exactly: %s\n\nInput News Data:",
+            "Analyze the following film news items and synthesize them into a selective Lunara Journal run.\n\nRules:\n- Separate entries with <hr>.\n- Do not use <h2>.\n- Start every entry with an original <h3> headline in Lunara's voice.\n- Film titles in <em>.\n- Prefer %d or fewer strong entries; never write more than %d.\n- Skip anything that does not earn its space.\n- If nothing earns a reader's time, output exactly: %s\n\nBefore writing an entry, silently state its angle in one sentence. If the angle is \"this happened\" or \"this is interesting\", skip the item.\n- Fan first, critic brain second. The take is the spine; the facts serve it.\n- Opinion lands in paragraph one. First person is allowed.\n- Every entry ends on a landing sentence. Add an engagement question after it only when the entry has a real fork worth arguing; most entries should not.\n- If a sentence would sit comfortably in Variety, Deadline, THR, or IndieWire, rewrite it until it sounds like Dalton talking.\n\nInput News Data:",
             (int) ( $selection['prefer_entries'] ?? 2 ),
             (int) ( $selection['max_entries'] ?? 3 ),
             (string) ( $selection['skip_marker'] ?? '<!-- LUNARA_SKIP: no reader-worthy items -->' )
@@ -120,6 +178,23 @@ final class Lunara_Journal_Prompt_Compiler {
         $value = is_scalar( $value ) ? (string) $value : '';
         $value = trim( preg_replace( '/\R{3,}/', "\n\n", $value ) );
         return $value;
+    }
+
+    private static function example_pairs( $values ) {
+        if ( ! is_array( $values ) ) {
+            return array();
+        }
+        $out = array();
+        foreach ( $values as $pair ) {
+            if ( ! is_array( $pair ) || empty( $pair['not_this'] ) || empty( $pair['this'] ) || ! is_scalar( $pair['not_this'] ) || ! is_scalar( $pair['this'] ) ) {
+                continue;
+            }
+            $out[] = array(
+                'not_this' => trim( (string) $pair['not_this'] ),
+                'this'     => trim( (string) $pair['this'] ),
+            );
+        }
+        return $out;
     }
 
     private static function list_values( $values ) {
