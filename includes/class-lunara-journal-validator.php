@@ -66,6 +66,14 @@ final class Lunara_Journal_Validator {
             }
         }
 
+        $poison = $config['editorial']['voice']['expertise_poison_phrases'] ?? array();
+        foreach ( is_array( $poison ) ? $poison : array() as $phrase ) {
+            $phrase = strtolower( trim( (string) $phrase ) );
+            if ( '' !== $phrase && false !== strpos( $lower, $phrase ) ) {
+                $warnings[] = 'House tell found, cut on sight: ' . $phrase;
+            }
+        }
+
         if ( ! preg_match( '/^[\x09\x0A\x0D\x20-\x7E]*$/', (string) $post->post_content ) ) {
             $warnings[] = 'Content contains non-ASCII characters. Review before publishing.';
         }

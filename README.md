@@ -1,8 +1,12 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.13
+Version: 1.2.14
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
+
+## Journal voice lives in the compiler (1.2.14)
+
+Foundation 1.2.14 moves the full LUNARA Journal register into the Control Plane prompt compiler as code-owned defaults: the talk-not-essay register, the standing principles, the flexible structure, headline rules, Not this / This contrast pairs, a drift catalog, a cut-on-sight list of performed-expertise phrases, and the per-entry landing plus engagement question. Before 1.2.14 the compiled prompt carried a one-sentence voice summary and the rest of the voice lived in a Dispatch fallback prompt that never executes while Foundation is active. The new keys sit under `editorial.voice` and are filled from code on every read, so every stored configuration version, including ones created before 1.2.14, compiles with the full voice while keeping its admin-edited summary, refinement note, and banned phrases. The validator reports the cut-on-sight phrases as warnings, never as errors. Contracts: `tests/prompt-compiler-voice-runtime.php` and `tests/validator-house-tells-runtime.php`.
 
 ## Journal Workflow handoff and labeled sources
 
@@ -146,7 +150,7 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 ## Install order
 
 1. Confirm Lunara Dispatch Automation 3.2.5 or newer is active. When upgrading an older paired stack, disable automated runs until Dispatch has been upgraded first.
-2. Replace the existing LUNARA Journal Foundation with version 1.2.13.
+2. Replace the existing LUNARA Journal Foundation with version 1.2.14.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
 5. Keep the current GPT instructions; the 1.2.13 automation routes are separate from the Journal Editor Action schema.
