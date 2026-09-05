@@ -25,3 +25,23 @@ test('the desk protects publish actions and draft-specific revisions', () => {
   assert.equal(Object.hasOwn(body, 'status'), false);
   assert.equal(desk.visibleDrafts([{id:1,journal_status:'rejected'},{id:2,journal_status:'draft'}]).length,1);
 });
+
+test('image replacement preserves writing and makes the draft unsaved', () => {
+  const desk = require(file);
+  const base = desk.fromWorkspace({title:'Draft', content:'<p>Unsaved writing</p>', featured_media:9, image:{url:'https://example.com/old.jpg'}, acf:{journal_image_credit:'Old credit',journal_image_alt:'Old alt'}});
+  assert.equal(base.imageId,9);
+  const next = desk.chooseImage(base,{id:15,url:'https://example.com/new.jpg',alt:'New alt'});
+  assert.equal(next.content,'<p>Unsaved writing</p>');
+  assert.equal(next.imageId,15);
+  assert.equal(next.imageCredit,'');
+  assert.equal(next.imageAlt,'New alt');
+  assert.equal(desk.isDirty(base,next),true);
+  assert.deepEqual(desk.chooseImage(next,{id:15,url:'https://example.com/new.jpg',alt:'Other'}),next);
+  const body=desk.saveBody(next,'rev');
+  assert.equal(body.featured_media,15);
+  assert.equal(body.acf.journal_image_source_url,'https://example.com/new.jpg');
+  assert.equal(body.acf.journal_image_credit,'');
+  assert.equal(body.acf.journal_image_alt,'New alt');
+  assert.equal(desk.isDirty(base,{...base,imageAlt:'Edited alt'}),true);
+  assert.equal(desk.isDirty(base,{...base,imageCredit:'Edited credit'}),true);
+});

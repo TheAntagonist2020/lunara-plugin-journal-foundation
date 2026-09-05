@@ -1,0 +1,6 @@
+{
+  "name": "lunara-journal-desk-tests",
+  "private": true,
+  "scripts": {"test": "node --test tests/desk-state.test.cjs tests/desk-image-ui.test.cjs"},
+  "devDependencies": {"jsdom": "26.1.0"}
+}

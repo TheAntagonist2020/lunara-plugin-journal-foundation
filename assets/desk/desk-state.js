@@ -4,7 +4,7 @@
   else root.LunaraDeskState = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const fields = ['title', 'content', 'excerpt', 'seo', 'deck'];
+  const fields = ['title', 'content', 'excerpt', 'seo', 'deck', 'imageId', 'imageCredit', 'imageAlt', 'imageSource'];
   function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
@@ -17,10 +17,14 @@
   function canApplyCandidate(candidate, draftId, draft) { return Boolean(candidate && candidate.draftId === draftId && !isDirty(candidate.input, draft)); }
   function fromWorkspace(workspace) {
     const acf = workspace.acf || {};
-    return { title:workspace.title || '', content:workspace.content || '', excerpt:workspace.excerpt || '', seo:acf.journal_seo_description || '', deck:acf.journal_deck || '' };
+    return { title:workspace.title || '', content:workspace.content || '', excerpt:workspace.excerpt || '', seo:acf.journal_seo_description || '', deck:acf.journal_deck || '', imageId:Number(workspace.featured_media)||0, imageUrl:safeUrl(workspace.image && workspace.image.url), imageSource:acf.journal_image_source_url || '', imageCredit:acf.journal_image_credit || '', imageAlt:acf.journal_image_alt || (workspace.image && workspace.image.alt_text) || '' };
   }
   function saveBody(draft, revision) {
-    return {expected_revision:revision, title:draft.title, content:draft.content, excerpt:draft.excerpt, acf:{journal_seo_description:draft.seo, journal_deck:draft.deck}};
+    return {expected_revision:revision, title:draft.title, content:draft.content, excerpt:draft.excerpt, ...(draft.imageId?{featured_media:draft.imageId}:{}), acf:{journal_seo_description:draft.seo, journal_deck:draft.deck, journal_image_credit:draft.imageCredit||'', journal_image_alt:draft.imageAlt||'', journal_image_source_url:draft.imageSource||''}};
+  }
+  function chooseImage(draft, image) {
+    if (draft.imageId === image.id) return {...draft};
+    return {...draft, imageId:image.id, imageUrl:safeUrl(image.url), imageSource:safeUrl(image.url), imageCredit:'', imageAlt:image.alt||''};
   }
   function visibleDrafts(drafts) { return (drafts || []).filter(draft => draft.journal_status !== 'rejected'); }
   function voiceFlags(content, headline, banned) {
@@ -33,5 +37,5 @@
     if (!/<a\s[^>]*href=/i.test(content || '')) flags.push('Check source attribution in the article. The source list below is kept separately.');
     return flags;
   }
-  return {escapeHtml, safeUrl, isDirty, canPublish, canApplyCandidate, fromWorkspace, saveBody, visibleDrafts, voiceFlags};
+  return {chooseImage, escapeHtml, safeUrl, isDirty, canPublish, canApplyCandidate, fromWorkspace, saveBody, visibleDrafts, voiceFlags};
 });

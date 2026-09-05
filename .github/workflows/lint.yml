@@ -64,11 +64,14 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install editor test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Journal Desk JavaScript
         run: |
           node --check assets/desk/desk.js
           node --check assets/desk/desk-state.js
-          node --test tests/desk-state.test.cjs
+          node --test tests/desk-state.test.cjs tests/desk-image-ui.test.cjs
 
       - name: OpenAPI JSON syntax
         run: |
