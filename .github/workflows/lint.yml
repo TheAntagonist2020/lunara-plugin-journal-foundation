@@ -55,6 +55,21 @@ jobs:
       - name: Hub telemetry runtime
         run: php tests/hub-telemetry-runtime.php
 
+      - name: Journal Desk API and revision runtime
+        run: |
+          php tests/desk-api-runtime.php
+          php tests/desk-rewriter-runtime.php
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Journal Desk JavaScript
+        run: |
+          node --check assets/desk/desk.js
+          node --check assets/desk/desk-state.js
+          node --test tests/desk-state.test.cjs
+
       - name: OpenAPI JSON syntax
         run: |
           python3 - <<'PYEOF'

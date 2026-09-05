@@ -1,6 +1,6 @@
 # LUNARA Journal Foundation
 
-Version: 1.2.14
+Version: 1.3.0
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
 
@@ -150,8 +150,12 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 ## Install order
 
 1. Confirm Lunara Dispatch Automation 3.2.5 or newer is active. When upgrading an older paired stack, disable automated runs until Dispatch has been upgraded first.
-2. Replace the existing LUNARA Journal Foundation with version 1.2.14.
+2. Replace the existing LUNARA Journal Foundation with version 1.3.0.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
 5. Keep the current GPT instructions; the 1.2.13 automation routes are separate from the Journal Editor Action schema.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.
+
+## Private Journal Desk app (1.3.0)
+
+Open `/journal-desk/` with your existing WordPress administrator login to review drafts, propose revisions, adjust the Journal voice, manage sources, run Dispatch, and approve publication. Add it to your iPhone Home Screen for a standalone view. The same canonical voice powers Dispatch and rewrite proposals. Existing publication gates remain in force. See [Journal Desk installation and verification](docs/journal-desk-app.md).
