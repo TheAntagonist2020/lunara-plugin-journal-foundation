@@ -4,7 +4,7 @@
   const H = window.LunaraDeskState;
   const e = H.escapeHtml;
   const root = document.getElementById('journal-desk');
-  const state = { view:'queue', desk:null, settings:null, workspace:null, draft:null, base:null, revision:'', awaitingReadback:false, candidate:null, undo:null, feedback:'', busy:'', notice:null, search:'', page:1, formDirty:false, settingsEdit:null, removedSources:[], online:navigator.onLine, poll:null };
+  const state = { view:'queue', mediaOpen:false, media:null, mediaPage:1, mediaSearch:'', desk:null, settings:null, workspace:null, draft:null, base:null, revision:'', awaitingReadback:false, candidate:null, undo:null, feedback:'', busy:'', notice:null, search:'', page:1, formDirty:false, settingsEdit:null, removedSources:[], online:navigator.onLine, poll:null };
   let selectedRange = null;
   let deskRequest = 0;
   const icons = {
@@ -44,7 +44,8 @@
   async function api(path, body) {
     const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),95000);
     try {
-      const response=await fetch(config.apiBase+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'X-WP-Nonce':config.nonce,'Accept':'application/json',...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal,cache:'no-store'});
+      const multipart=body instanceof FormData;
+      const response=await fetch(config.apiBase+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',headers:{'X-WP-Nonce':config.nonce,'Accept':'application/json',...(body===undefined||multipart?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal:controller.signal,cache:'no-store'});
       const contentType=response.headers.get('content-type')||'';
       if(!contentType.includes('json'))throw new Error('Your session may have expired. Reload Journal Desk to sign in again.');
       const data=await response.json();
@@ -62,7 +63,7 @@
   function leaveAllowed(){return !unsaved()||window.confirm('Leave without saving these changes?');}
   async function navigate(view){
     if(state.busy||!leaveAllowed())return;
-    state.view=view;state.workspace=null;state.draft=null;state.candidate=null;state.undo=null;state.feedback='';state.formDirty=false;state.settingsEdit=null;state.removedSources=[];state.notice=null;
+    state.mediaOpen=false;state.media=null;state.view=view;state.workspace=null;state.draft=null;state.candidate=null;state.undo=null;state.feedback='';state.formDirty=false;state.settingsEdit=null;state.removedSources=[];state.notice=null;
     render();window.scrollTo(0,0);
     if(view==='queue')await loadDesk();else await loadSettings();
   }
@@ -87,8 +88,36 @@
   async function openDraft(id){
     if(state.busy||!leaveAllowed())return;
     state.busy='open';state.notice=null;render();
-    try{const data=await api('journal/app/drafts/'+id);state.workspace=data;state.revision=data.revision;state.awaitingReadback=false;state.base=H.fromWorkspace(data.workspace);state.draft=clone(state.base);state.view='review';state.candidate=null;state.undo=null;state.feedback='';state.formDirty=false;window.scrollTo(0,0);}
+    try{const data=await api('journal/app/drafts/'+id);state.mediaOpen=false;state.media=null;state.workspace=data;state.revision=data.revision;state.awaitingReadback=false;state.base=H.fromWorkspace(data.workspace);state.draft=clone(state.base);state.view='review';state.candidate=null;state.undo=null;state.feedback='';state.formDirty=false;window.scrollTo(0,0);}
     catch(error){handleError(error);}finally{state.busy='';render();}
+  }
+  async function loadMedia(page){
+    if(state.busy)return;state.mediaPage=page||1;state.media=null;state.busy='media';render();
+    try{state.media=await api('journal/app/media?page='+state.mediaPage+'&search='+encodeURIComponent(state.mediaSearch));}
+    catch(error){handleError(error);}finally{state.busy='';render();}
+  }
+  function chooseImage(image){
+    state.draft=H.chooseImage(state.draft,image);state.mediaOpen=false;state.candidate=null;state.undo=null;
+    notify('Image selected. Check its credit and description, then save the draft.');render();
+  }
+  async function uploadImage(file){
+    if(!file||state.busy)return;
+    if(file.size>config.maxUploadBytes){notify('Choose an image smaller than '+Math.floor(config.maxUploadBytes/1048576)+' MB.',true);render();return;}
+    const body=new FormData();body.append('file',file,file.name);state.busy='upload-image';render();
+    try{const result=await api('journal/app/media',body);if(!result.images||!result.images.length)throw new Error('The upload finished without a usable image. Check the media library before uploading again.');chooseImage(result.images[0]);}
+    catch(error){handleError(error);}finally{state.busy='';render();}
+  }
+  function imagePicker(){
+    let html='<div class="image-picker"><label class="label" for="image-upload">Upload from your device</label><input id="image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif"'+disabled()+'><p class="help">JPEG, PNG, WebP, GIF or AVIF. Up to '+Math.floor(config.maxUploadBytes/1048576)+' MB. Uploads enter the WordPress media library immediately; the article changes only when you save. Uploaded file URLs are public.</p><button class="btn quiet" data-action="media-library"'+disabled()+'>Choose from your media library</button>';
+    if(state.busy==='upload-image')html+='<p role="status">Uploading and preparing your image…</p>';
+    if(state.busy==='media')html+='<p role="status">Loading images…</p>';
+    if(state.media){
+      html+='<form id="media-search-form" class="search-form"><label class="sr-only" for="media-search">Search images</label><input id="media-search" name="search" type="search" maxlength="200" placeholder="Find an image…" value="'+e(state.mediaSearch)+'"'+disabled()+'><button class="btn quiet" type="submit"'+disabled()+'>Search</button></form>';
+      html+='<div class="media-grid">'+state.media.images.map(item=>'<button class="media-choice" data-image="'+Number(item.id)+'"'+disabled()+'><img loading="lazy" src="'+e(H.safeUrl(item.thumbnail||item.url))+'" alt=""><span>'+e(item.title||'Untitled image')+'</span><small>'+Number(item.width)+' × '+Number(item.height)+'</small></button>').join('')+'</div>';
+      if(!state.media.images.length)html+='<p class="small muted">No images found. Try another search or upload one.</p>';
+      html+='<div class="pagination"><button class="btn quiet" data-media-page="'+(state.mediaPage-1)+'"'+(state.mediaPage<=1||state.busy?' disabled':'')+'>Previous</button><span class="small">Page '+state.mediaPage+'</span><button class="btn quiet" data-media-page="'+(state.mediaPage+1)+'"'+(state.mediaPage>=state.media.total_pages||state.busy?' disabled':'')+'>Next</button></div>';
+    }
+    return html+'<button class="link-btn" data-action="close-media"'+disabled()+'>Close image picker</button></div>';
   }
   function publishState(){return{dirty:dirty(),awaitingReadback:state.awaitingReadback,valid:!!(state.workspace&&state.workspace.validation&&state.workspace.validation.valid),enabled:!!(state.workspace&&state.workspace.workspace.publication&&state.workspace.workspace.publication.gpt_publish_enabled),permitted:!!(state.settings&&state.settings.publication&&state.settings.publication.can_publish),busy:!!state.busy||!state.online};}
   function saveMessage(){
@@ -102,17 +131,17 @@
   function updateActions(){
     const publish=document.getElementById('publish-button');if(publish)publish.disabled=!H.canPublish(publishState());
     const message=document.getElementById('save-message');if(message){message.textContent=saveMessage();message.classList.toggle('warn',dirty());}
-    const save=document.getElementById('save-button');if(save)save.disabled=!!state.busy||!state.online||!dirty();
+    const save=document.getElementById('save-button');if(save)save.disabled=!!state.busy||!state.online||state.awaitingReadback||!dirty();
   }
   async function saveDraft(){
-    if(!dirty()||state.busy)return;state.busy='save';render();
+    if(!dirty()||state.busy||state.awaitingReadback)return;state.busy='save';render();
     try{
       const id=state.workspace.workspace.id;const saved=await api('journal/app/drafts/'+id+'/save',H.saveBody(state.draft,state.revision));
       // A failed follow-up read must not leave the editor on an already-consumed revision.
       state.revision=saved.revision;state.awaitingReadback=true;state.base=clone(state.draft);state.workspace.validation=saved.validation;state.candidate=null;state.undo=null;
       const data=await api('journal/app/drafts/'+id);state.workspace=data;state.revision=data.revision;state.awaitingReadback=false;state.base=H.fromWorkspace(data.workspace);state.draft=clone(state.base);state.candidate=null;state.undo=null;
       notify('Draft saved. '+(data.validation&&data.validation.valid?'Publishing checks passed; review the voice and facts before approving.':'Some publishing checks still need attention.'));
-    }catch(error){if(state.awaitingReadback)notify('Your draft was saved, but the saved copy could not be reloaded. Use Reload saved draft before publishing.',true);else handleError(error);}finally{state.busy='';render();}
+    }catch(error){if(error.data&&error.data.partial_save){state.awaitingReadback=true;notify(error.message,true);}else if(state.awaitingReadback)notify('Your draft was saved, but the saved copy could not be reloaded. Use Reload saved draft before publishing.',true);else handleError(error);}finally{state.busy='';render();}
   }
   async function publish(){
     if(!H.canPublish(publishState()))return;
@@ -189,7 +218,7 @@
     const w=state.workspace.workspace;const draft=state.draft;const acf=w.acf||{};
     const sources=Array.isArray(acf.journal_source_items)?acf.journal_source_items:[];
     const flags=H.voiceFlags(draft.content,draft.title,state.settings&&state.settings.voice.banned_phrases);
-    const image=H.safeUrl(w.image&&w.image.url);
+    const image=H.safeUrl(draft.imageUrl);
     let html='<div class="actions back"><button class="btn quiet" data-view="queue"'+disabled()+'>'+icon('back')+'Draft queue</button><button class="btn quiet" data-draft="'+Number(w.id)+'"'+disabled()+'>'+icon('refresh')+'Reload saved draft</button></div>';
     html+='<div class="review-grid"><div><div class="editor-card"><div class="field-group"><label class="label" for="draft-title">Headline</label><textarea id="draft-title" class="headline-field" data-field="title"'+disabled()+'>'+e(draft.title)+'</textarea></div>';
     html+='<div class="field-group"><label class="label" id="article-label">Article</label><div class="editor-toolbar" role="toolbar" aria-label="Article formatting"><button data-format="em" aria-label="Italicize selected words"><em>I</em></button><button data-format="a" aria-label="Link selected words">Link</button><span class="help">Select words to format</span></div><div id="article-editor" class="article-editor" contenteditable="'+(!state.busy)+'" role="textbox" aria-multiline="true" aria-labelledby="article-label" data-placeholder="Write the story…" spellcheck="true">'+safeHtml(draft.content)+'</div></div>';
@@ -197,7 +226,7 @@
     html+='<div class="rewrite-panel"><p class="eyebrow">VOICE & REVISION</p><h2>Find the right words</h2><label for="feedback" class="small muted">What should change in this draft?</label><textarea id="feedback" placeholder="E.g. Open with the casting news. Cut the financing jargon and the exaggerated headline."'+disabled()+'>'+e(state.feedback)+'</textarea><div class="actions"><button class="btn" data-action="revise"'+disabled()+'>'+ (state.busy==='revise'?icon('refresh',true)+'Revising…':icon('voice')+'Propose a revision')+'</button><button class="link-btn small" id="remember-feedback" data-action="remember"'+(!state.feedback.trim()||state.busy?' disabled':'')+'>Keep feedback as a standing instruction</button></div><p class="help">A revision is a proposal. It is saved only when you apply it and save the draft.</p></div></div>';
     if(state.candidate){const c=state.candidate.candidate;html+='<section class="candidate" id="candidate"><div class="candidate-head"><h2>Proposed revision</h2><span class="badge">Not saved</span></div><details><summary>Compare with the current draft</summary><h3>'+e(state.candidate.input.title)+'</h3><div class="reading-copy">'+safeHtml(state.candidate.input.content)+'</div></details><h3>'+e(c.title)+'</h3><div class="reading-copy">'+safeHtml(c.content)+'</div><p class="help">Summary: '+e(c.excerpt)+'</p>'+(state.candidate.notes?'<p class="help">'+e(Array.isArray(state.candidate.notes)?state.candidate.notes.join(' '):state.candidate.notes)+'</p>':'')+'<div class="actions"><button class="btn primary" data-action="apply-candidate">Use this revision</button><button class="btn quiet" data-action="discard-candidate">Keep current draft</button></div></section>';}
     if(state.undo)html+='<p class="help"><button class="link-btn" data-action="undo">Undo applied revision</button></p>';
-    html+='</div><aside class="review-aside"><div class="card">'+validationHtml()+'</div><div class="card"><h3>Voice review</h3><p class="help">Prompts for your judgment; these are not an approval score.</p>'+(flags.length?'<ul class="check-list">'+flags.map(x=>'<li>'+e(x)+'</li>').join('')+'</ul>':'<p class="small muted">Read for a specific angle, natural voice, and claims the sources support.</p>')+'</div><div class="card"><h3>Sources</h3>'+(sources.length?'<ul class="source-list">'+sources.map(source=>'<li>'+link(source.source_url||source.url,source.source_headline||source.source_title||source.title||source.source_publication||source.source_name||source.name||'Open source')+'<p>'+e(source.source_publication||source.source_name||source.name||'')+'</p>'+(source.source_excerpt?'<details><summary>Stored excerpt</summary><p>'+e(source.source_excerpt)+'</p></details>':'')+'</li>').join('')+'</ul>':'<p class="small muted">No source links are attached.</p>')+'</div><div class="card"><h3>Featured image</h3>'+(image?'<img class="article-image" src="'+e(image)+'" alt="'+e(acf.journal_image_alt||'')+'" referrerpolicy="no-referrer">':'<p class="small muted">No featured image is attached.</p>')+'<p class="small muted">'+e(acf.journal_image_credit||'')+'</p>'+link(w.edit_link,'Edit image in WordPress','small')+'</div></aside></div>';
+    html+='</div><aside class="review-aside"><div class="card">'+validationHtml()+'</div><div class="card"><h3>Voice review</h3><p class="help">Prompts for your judgment; these are not an approval score.</p>'+(flags.length?'<ul class="check-list">'+flags.map(x=>'<li>'+e(x)+'</li>').join('')+'</ul>':'<p class="small muted">Read for a specific angle, natural voice, and claims the sources support.</p>')+'</div><div class="card"><h3>Sources</h3>'+(sources.length?'<ul class="source-list">'+sources.map(source=>'<li>'+link(source.source_url||source.url,source.source_headline||source.source_title||source.title||source.source_publication||source.source_name||source.name||'Open source')+'<p>'+e(source.source_publication||source.source_name||source.name||'')+'</p>'+(source.source_excerpt?'<details><summary>Stored excerpt</summary><p>'+e(source.source_excerpt)+'</p></details>':'')+'</li>').join('')+'</ul>':'<p class="small muted">No source links are attached.</p>')+'</div><div class="card"><h3>Featured image</h3>'+(image?'<img class="article-image" src="'+e(image)+'" alt="'+e(draft.imageAlt||'')+'" referrerpolicy="no-referrer">':'<p class="small muted">No featured image is attached.</p>')+'<button class="btn quiet" data-action="change-image" aria-expanded="'+state.mediaOpen+'"'+disabled()+'>Change image</button>'+(state.mediaOpen?imagePicker():'')+'<div class="field-group"><label class="label" for="image-credit">Image credit</label><input id="image-credit" data-field="imageCredit" value="'+e(draft.imageCredit)+'"'+disabled()+'></div><div class="field-group"><label class="label" for="image-alt">Alt text</label><textarea id="image-alt" data-field="imageAlt" maxlength="2000"'+disabled()+'>'+e(draft.imageAlt)+'</textarea><p class="help">Describe what is visible. Saving updates this image’s alt text in the media library, including other places using the same image.</p></div></div></aside></div>';
     html+='<div class="review-footer"><div><p id="save-message" class="save-state'+(dirty()?' warn':'')+'">'+e(saveMessage())+'</p>'+(!publishState().enabled?link(config.settingsUrl,'Open publishing settings','small'):'')+'</div><div class="actions"><button id="save-button" class="btn" data-action="save"'+(!dirty()||state.busy?' disabled':'')+'>Save draft</button><button id="publish-button" class="btn primary" data-action="publish"'+(!H.canPublish(publishState())?' disabled':'')+'>Approve & Publish</button><button class="btn quiet danger reject" data-action="reject"'+disabled()+'>Reject story</button></div></div>';
     return html;
   }
@@ -227,6 +256,8 @@
   root.addEventListener('click',async event=>{
     const button=event.target.closest('button');if(!button||button.disabled)return;
     if(button.dataset.view){await navigate(button.dataset.view);return;}
+    if(button.dataset.image){const item=state.media&&state.media.images.find(image=>image.id===Number(button.dataset.image));if(item)chooseImage(item);return;}
+    if(button.dataset.mediaPage){await loadMedia(Number(button.dataset.mediaPage));return;}
     if(button.dataset.draft){await openDraft(Number(button.dataset.draft));return;}
     if(button.dataset.page){state.page=Number(button.dataset.page);await loadDesk();return;}
     if(button.dataset.removeSource!==undefined){const i=Number(button.dataset.removeSource);const removed=state.settingsEdit.sources.splice(i,1)[0];if(removed.id)state.removedSources.push(removed.id);state.formDirty=true;render();return;}
@@ -238,6 +269,9 @@
       try{selectedRange.surroundContents(wrapper);state.draft.content=safeHtml(editor.innerHTML);updateActions();}catch(_){notify('Select words within a single paragraph to format them.',true);render();}return;
     }
     switch(button.dataset.action){
+      case 'change-image':state.mediaOpen=!state.mediaOpen;render();break;
+      case 'close-media':state.mediaOpen=false;render();break;
+      case 'media-library':await loadMedia(1);break;
       case 'dismiss':state.notice=null;render();break;
       case 'refresh':await loadDesk();break;
       case 'save':await saveDraft();break;
@@ -254,10 +288,12 @@
   });
   root.addEventListener('submit',async event=>{
     event.preventDefault();if(state.busy)return;
+    if(event.target.id==='media-search-form'){state.mediaSearch=new FormData(event.target).get('search').trim();await loadMedia(1);}
     if(event.target.id==='search-form'){state.search=new FormData(event.target).get('search').trim();state.page=1;await loadDesk();}
     if(event.target.id==='voice-form')await saveSettings('voice');
     if(event.target.id==='dispatch-form')await saveSettings('dispatch');
   });
+  root.addEventListener('change',async event=>{if(event.target.id==='image-upload')await uploadImage(event.target.files[0]);});
   root.addEventListener('input',event=>{
     const el=event.target;
     if(el.dataset.field){state.draft[el.dataset.field]=el.value;updateActions();}

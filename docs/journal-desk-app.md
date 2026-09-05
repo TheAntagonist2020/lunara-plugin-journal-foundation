@@ -28,3 +28,13 @@ The standalone tests cover cookie/nonce permissions, configuration field allowli
 The feature must still be exercised on the installed WordPress site: authenticated page load, opening a draft, saving, one provider rewrite, Dispatch completion, and an explicitly approved real publication. Local mocked HTTP tests do not establish live provider access. A passed formatting/metadata validator does not establish factual accuracy or editorial approval.
 
 Per-draft tokens reject stale app requests; short locks serialize app-tab writes. Existing WordPress editor/legacy bridge writes do not share those locks, so these are not global database transactions. Failed or timed-out writes should be reloaded and checked before retrying. Session expiry can require a page reload; keep unsaved text before leaving.
+
+## Image editing (1.3.1)
+
+The featured-image card includes **Change image**, device upload, and a searchable, paginated media-library picker. Selection preserves unsaved text and takes effect on the article only with Save draft. Credit is cleared for a different image; verify attribution before saving. Alt text is editable and also updates the selected attachment in WordPress, including other uses of that attachment. Shared alt changes participate in the draft revision check.
+
+`GET /lunara/v1/journal/app/media` supports `search` and `page`; `POST` accepts one multipart `file`. Both require the administrator cookie session, REST nonce, and `upload_files`. Uploads use the core WordPress media endpoint after file-signature and size checks (20 MB or the lower site limit), and enter the library immediately with public file URLs. The picker accepts JPEG, PNG, WebP, GIF, and AVIF; core may reject formats unsupported by the server. No article is published by an upload.
+
+Save accepts a positive integer `featured_media`, validates it and attachment edit capability before writing, and verifies thumbnail/alt readback. A subsequent failed article save is reported as partial and the UI requires reloading before another save or publication. WordPress does not provide an atomic transaction across attachment metadata and article writes.
+
+Verification: image state tests, editor DOM interactions (upload, library search/paging, preservation of unsaved prose, staged image metadata, partial-save blocking), and PHP permission/revision/upload-boundary tests. These do not replace installed-site upload and thumbnail-rendering verification.

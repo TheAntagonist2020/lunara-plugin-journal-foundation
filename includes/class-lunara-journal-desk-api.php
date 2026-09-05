@@ -17,6 +17,10 @@ final class Lunara_Journal_Desk_API {
             array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'rest_settings' ), 'permission_callback' => array( __CLASS__, 'settings_permissions_check' ) ),
             array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'rest_save_settings' ), 'permission_callback' => array( __CLASS__, 'settings_permissions_check' ) ),
         ) );
+        register_rest_route( 'lunara/v1', '/journal/app/media', array(
+            'methods' => 'GET, POST', 'callback' => array( __CLASS__, 'rest_media' ),
+            'permission_callback' => array( __CLASS__, 'media_permissions_check' ),
+        ) );
         $id_args = array( 'id' => array( 'validate_callback' => array( 'Lunara_Journal_Foundation', 'rest_validate_positive_id' ), 'sanitize_callback' => 'absint' ) );
         register_rest_route( 'lunara/v1', '/journal/app/drafts/(?P<id>\d+)', array(
             'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'rest_workspace' ),
@@ -73,6 +77,57 @@ final class Lunara_Journal_Desk_API {
             return $permission;
         }
         return current_user_can( 'publish_posts' ) ? true : self::error( 'lunara_desk_publish_forbidden', 'You cannot publish Journal entries.', 403 );
+    }
+
+    public static function media_permissions_check( WP_REST_Request $request ) {
+        $permission = self::session_permissions_check( $request );
+        if ( is_wp_error( $permission ) ) { return $permission; }
+        return current_user_can( 'upload_files' ) ? true : self::error( 'lunara_desk_media_forbidden', 'You cannot manage images.', 403 );
+    }
+
+    /** Keep core upload validation and permissions; expose only image-picker fields. */
+    public static function rest_media( WP_REST_Request $request ) {
+        $permission = self::media_permissions_check( $request );
+        if ( is_wp_error( $permission ) ) { return $permission; }
+        $upload = 'POST' === $request->get_method();
+        $proxy = new WP_REST_Request( $upload ? 'POST' : 'GET', '/wp/v2/media' );
+        if ( $upload ) {
+            $files = $request->get_file_params();
+            $file = isset( $files['file'] ) ? $files['file'] : null;
+            if ( ! is_array( $file ) || ! isset( $file['error'], $file['size'], $file['tmp_name'] ) || UPLOAD_ERR_OK !== $file['error'] || ! is_string( $file['tmp_name'] ) ) {
+                return self::error( 'lunara_desk_upload_failed', 'Choose an image file. The upload may exceed your server limit.', 400 );
+            }
+            if ( $file['size'] > min( 20 * 1024 * 1024, wp_max_upload_size() ) ) {
+                return self::error( 'lunara_desk_upload_large', 'Choose an image smaller than the upload limit shown in the desk.', 413 );
+            }
+            $mime = wp_get_image_mime( $file['tmp_name'] );
+            if ( ! in_array( $mime, array( 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif' ), true ) ) {
+                return self::error( 'lunara_desk_upload_type', 'Choose a JPEG, PNG, WebP, GIF, or AVIF image.', 400 );
+            }
+            $proxy->set_file_params( array( 'file' => $file ) );
+        } else {
+            $page = $request->get_param( 'page' );
+            $search = $request->get_param( 'search' );
+            if ( ( null !== $page && ( ! is_scalar( $page ) || ! ctype_digit( (string) $page ) || (int) $page < 1 ) ) || ( null !== $search && ( ! is_string( $search ) || strlen( $search ) > 200 ) ) ) {
+                return self::error( 'lunara_desk_media_query', 'Use a valid image search and page.', 400 );
+            }
+            $proxy->set_param( 'context', 'edit' );
+            $proxy->set_param( 'media_type', 'image' );
+            $proxy->set_param( 'per_page', 24 );
+            $proxy->set_param( 'page', $page ? (int) $page : 1 );
+            $proxy->set_param( 'search', sanitize_text_field( $search ?: '' ) );
+        }
+        $result = rest_do_request( $proxy );
+        if ( $result->is_error() ) { return $result->as_error(); }
+        $data = $result->get_data();
+        $items = $upload ? array( $data ) : $data;
+        $images = array();
+        foreach ( $items as $item ) {
+            if ( ! in_array( $item['mime_type'] ?? '', array( 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif' ), true ) || ! current_user_can( 'edit_post', $item['id'] ) ) { continue; }
+            $images[] = array( 'id' => (int) $item['id'], 'url' => esc_url_raw( $item['source_url'] ), 'thumbnail' => esc_url_raw( $item['media_details']['sizes']['medium']['source_url'] ?? $item['source_url'] ), 'title' => sanitize_text_field( $item['title']['raw'] ?? wp_strip_all_tags( $item['title']['rendered'] ?? '' ) ), 'alt' => (string) ( $item['alt_text'] ?? '' ), 'width' => (int) ( $item['media_details']['width'] ?? 0 ), 'height' => (int) ( $item['media_details']['height'] ?? 0 ) );
+        }
+        $headers = $result->get_headers();
+        return self::response( array( 'images' => $images, 'total_pages' => (int) ( $headers['X-WP-TotalPages'] ?? 1 ) ) );
     }
 
     public static function rest_settings( WP_REST_Request $request ) {
@@ -182,7 +237,7 @@ final class Lunara_Journal_Desk_API {
         if ( is_wp_error( $permission ) ) {
             return $permission;
         }
-        $body = self::request_body( $request, array( 'expected_revision', 'title', 'content', 'excerpt', 'acf' ) );
+        $body = self::request_body( $request, array( 'expected_revision', 'title', 'content', 'excerpt', 'acf', 'featured_media' ) );
         if ( is_wp_error( $body ) ) {
             return $body;
         }
@@ -213,7 +268,39 @@ final class Lunara_Journal_Desk_API {
             if ( is_wp_error( $permission ) || true !== $permission ) {
                 return $permission;
             }
+            $image_id = get_post_thumbnail_id( $post->ID );
+            if ( array_key_exists( 'featured_media', $body ) ) {
+                $image_id = $body['featured_media'];
+                if ( ! is_int( $image_id ) || $image_id < 1 || ! wp_attachment_is_image( $image_id ) || ! in_array( get_post_mime_type( $image_id ), array( 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif' ), true ) ) {
+                    return self::error( 'lunara_desk_invalid_image', 'Choose an existing image from your media library.', 400 );
+                }
+            }
+            $has_alt = isset( $body['acf'] ) && array_key_exists( 'journal_image_alt', $body['acf'] );
+            if ( $has_alt && ( ! is_string( $body['acf']['journal_image_alt'] ) || strlen( $body['acf']['journal_image_alt'] ) > 2000 ) ) {
+                return self::error( 'lunara_desk_invalid_alt', 'Use plain text for the image description (up to 2,000 bytes).', 400 );
+            }
+            $image_write = array_key_exists( 'featured_media', $body ) || ( $image_id && $has_alt );
+            if ( $image_write && ( ! current_user_can( 'upload_files' ) || ! current_user_can( 'edit_post', $image_id ) ) ) {
+                return self::error( 'lunara_desk_media_forbidden', 'You cannot edit the selected image.', 403 );
+            }
+            if ( $image_write ) {
+                if ( (int) get_post_thumbnail_id( $post->ID ) !== $image_id ) { set_post_thumbnail( $post->ID, $image_id ); }
+                if ( (int) get_post_thumbnail_id( $post->ID ) !== (int) $image_id ) {
+                    return new WP_Error( 'lunara_desk_image_failed', 'The featured image could not be verified. Reload the draft before retrying.', array( 'status' => 500, 'partial_save' => true ) );
+                }
+                if ( $has_alt ) {
+                    $alt = sanitize_text_field( $body['acf']['journal_image_alt'] );
+                    update_post_meta( $image_id, '_wp_attachment_image_alt', wp_slash( $alt ) );
+                    if ( (string) get_post_meta( $image_id, '_wp_attachment_image_alt', true ) !== $alt ) {
+                        return new WP_Error( 'lunara_desk_partial_save', 'The image changed but its description could not be verified. Reload the draft before retrying.', array( 'status' => 500, 'partial_save' => true ) );
+                    }
+                }
+                Lunara_Journal_Image_Guard::clear_cache( $post->ID );
+            }
             $result = Lunara_Journal_Fast_Desk::rest_save_validate( $proxy );
+            if ( $image_write && is_wp_error( $result ) ) {
+                return new WP_Error( 'lunara_desk_partial_save', 'The image was saved, but the article save could not be confirmed. Reload the saved draft before retrying.', array( 'status' => 500, 'partial_save' => true ) );
+            }
             return self::with_revision( $result, $post->ID );
         } );
     }
@@ -313,7 +400,7 @@ final class Lunara_Journal_Desk_API {
             }
         }
         ksort( $meta );
-        return hash( 'sha256', wp_json_encode( array( 'id' => $post->ID, 'type' => $post->post_type, 'status' => $post->post_status, 'title' => $post->post_title, 'content' => $post->post_content, 'excerpt' => $post->post_excerpt, 'modified' => $post->post_modified_gmt, 'featured_media' => get_post_thumbnail_id( $post->ID ), 'meta' => $meta ) ) );
+        return hash( 'sha256', wp_json_encode( array( 'id' => $post->ID, 'type' => $post->post_type, 'status' => $post->post_status, 'title' => $post->post_title, 'content' => $post->post_content, 'excerpt' => $post->post_excerpt, 'modified' => $post->post_modified_gmt, 'featured_media' => get_post_thumbnail_id( $post->ID ), 'image_alt' => get_post_meta( get_post_thumbnail_id( $post->ID ), '_wp_attachment_image_alt', true ), 'meta' => $meta ) ) );
     }
 
     private static function editable_post( $id, $writing ) {

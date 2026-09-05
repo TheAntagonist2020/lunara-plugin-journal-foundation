@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable stabilization contracts for Journal Foundation 1.3.0.
+ * Executable stabilization contracts for Journal Foundation 1.3.1.
  *
  * Run: php tests/release-contract.php
  */
@@ -98,15 +98,15 @@ foreach ( array( $main, $schema, $protocol, $readme, $production_openapi, $bridg
     contract_not_contains( $release_surface, '1.2.0', 'Stale 1.2.0 release identity remains.' );
     contract_assert( ! preg_match( '/(?<![0-9.])1\.2\.1(?![0-9.])/', $release_surface ), 'Stale 1.2.1 release identity remains.' );
 }
-contract_contains( $main, 'Version: 1.3.0', 'Plugin header must report 1.3.0.' );
-contract_contains( $main, "define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.3.0' );", 'Global Foundation version must report 1.3.0.' );
-contract_contains( $main, "const VERSION             = '1.3.0';", 'Runtime Foundation version must be 1.3.0.' );
+contract_contains( $main, 'Version: 1.3.1', 'Plugin header must report 1.3.1.' );
+contract_contains( $main, "define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.3.1' );", 'Global Foundation version must report 1.3.1.' );
+contract_contains( $main, "const VERSION             = '1.3.1';", 'Runtime Foundation version must be 1.3.1.' );
 contract_not_contains( $main, '1.2.13', 'Runtime release identity must not retain Foundation 1.2.13.' );
-contract_contains( $readme, 'Version: 1.3.0', 'README must report Foundation 1.3.0.' );
+contract_contains( $readme, 'Version: 1.3.1', 'README must report Foundation 1.3.1.' );
 contract_contains( $readme, 'Authorization: Bearer', 'README must document Bearer authentication for ChatGPT Actions.' );
 contract_not_contains( $readme, 'Version: 1.2.2', 'README release identity must not lag behind the plugin.' );
 foreach ( array( 'production' => $production_openapi, 'bridge' => $bridge_openapi, 'staging' => $staging_openapi ) as $label => $openapi_release ) {
-    contract_contains( $openapi_release, '"version": "1.3.0"', ucfirst( $label ) . ' OpenAPI release version must report 1.3.0.' );
+    contract_contains( $openapi_release, '"version": "1.3.1"', ucfirst( $label ) . ' OpenAPI release version must report 1.3.1.' );
 }
 
 // Source rows are labeled, strict, retained per user on rejection, and save

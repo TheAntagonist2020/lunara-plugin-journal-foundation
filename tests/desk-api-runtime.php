@@ -36,11 +36,16 @@ class WP_REST_Response {
     public function get_data() { return $this->data; }
     public function set_data( $data ) { $this->data = $data; }
     public function header( $name, $value ) {}
+    public function get_headers() { return array('X-WP-TotalPages'=>3); }
+    public function is_error() { return false; }
 }
 class WP_REST_Request implements ArrayAccess {
     private $params = array();
     private $headers = array();
     private $json = array();
+    private $files = array();
+    public function set_file_params($files) { $this->files=$files; }
+    public function get_file_params() { return $this->files; }
     private $method;
     private $route;
     public function __construct( $method = 'GET', $route = '/' ) { $this->method = $method; $this->route = $route; }
@@ -75,6 +80,7 @@ function update_option( $key, $value ) { $GLOBALS['desk_options'][$key] = $value
 function add_option( $key, $value ) { if ( array_key_exists( $key, $GLOBALS['desk_options'] ) ) { return false; } $GLOBALS['desk_options'][$key] = $value; return true; }
 function delete_option( $key ) { unset( $GLOBALS['desk_options'][$key] ); return true; }
 function current_time() { return '2026-09-04 12:00:00'; }
+function wp_slash( $value ) { return $value; }
 function sanitize_text_field( $value ) { return trim( strip_tags( (string) $value ) ); }
 function sanitize_textarea_field( $value ) { return trim( strip_tags( (string) $value ) ); }
 function sanitize_key( $value ) { return preg_replace( '/[^a-z0-9_-]/', '', strtolower( (string) $value ) ); }
@@ -88,7 +94,12 @@ function get_post_status( $post ) { return $post instanceof WP_Post ? $post->pos
 function get_post_meta( $id, $key = '', $single = false ) { $meta = $GLOBALS['desk_meta'][$id] ?? array(); return '' === $key ? $meta : ( $single ? ( $meta[$key][0] ?? '' ) : ( $meta[$key] ?? array() ) ); }
 function update_post_meta( $id, $key, $value ) { $GLOBALS['desk_meta'][$id][$key] = array( $value ); $GLOBALS['desk_writes']++; return true; }
 function update_field( $key, $value, $id ) { return update_post_meta( $id, $key, $value ); }
-function get_post_thumbnail_id( $id ) { return 9; }
+function get_post_thumbnail_id( $id ) { return $GLOBALS['desk_thumbnail'] ?? 9; }
+function set_post_thumbnail( $id, $image ) { $GLOBALS['desk_thumbnail'] = $image; $GLOBALS['desk_writes']++; return true; }
+function wp_attachment_is_image( $id ) { return in_array( $id, array(9,15), true ); }
+function get_post_mime_type( $id ) { return 'image/jpeg'; }
+function wp_get_attachment_url( $id ) { return 'https://example.com/image-' . $id . '.jpg'; }
+class Lunara_Journal_Image_Guard { public static function clear_cache( $id ) {} }
 function clean_post_cache( $id ) {}
 function do_action( $hook ) { $GLOBALS['desk_actions'][] = $hook; }
 function add_action( $hook, $callback ) {}
@@ -246,3 +257,59 @@ $published_edit = Lunara_Journal_Desk_API::rest_save( desk_request( array( 'expe
 desk_assert( is_wp_error( $published_edit ) && $writes === $GLOBALS['desk_writes'], 'Published content cannot be changed through draft editor routes.' );
 
 echo "Desk API behavior contracts passed.\n";
+
+$GLOBALS['desk_post']->post_status = 'draft';
+$GLOBALS['desk_caps']['upload_files'] = true;
+$rev = Lunara_Journal_Desk_API::revision_for_post(42);
+$save = Lunara_Journal_Desk_API::rest_save(desk_request(array('expected_revision'=>$rev,'featured_media'=>15,'acf'=>array('journal_image_alt'=>'A new still'))));
+desk_assert(!is_wp_error($save) && get_post_thumbnail_id(42)===15, 'A current administrator save must replace the featured image.');
+desk_assert(get_post_meta(15,'_wp_attachment_image_alt',true)==='A new still', 'Saved alt text must reach the featured image used by WordPress.');
+$writes=$GLOBALS['desk_writes'];
+$save=Lunara_Journal_Desk_API::rest_save(desk_request(array('expected_revision'=>$rev,'featured_media'=>9)));
+desk_assert(is_wp_error($save) && $writes===$GLOBALS['desk_writes'], 'Stale image choices must be rejected before any write.');
+foreach(array(-1, '15', 999, 0) as $bad){
+    $save=Lunara_Journal_Desk_API::rest_save(desk_request(array('expected_revision'=>Lunara_Journal_Desk_API::revision_for_post(42),'featured_media'=>$bad,'content'=>'Must not save')));
+    desk_assert(is_wp_error($save) && $writes===$GLOBALS['desk_writes'], 'Invalid images must not partially save the article.');
+}
+$GLOBALS['desk_caps']['upload_files']=false;
+$save=Lunara_Journal_Desk_API::rest_save(desk_request(array('expected_revision'=>Lunara_Journal_Desk_API::revision_for_post(42),'featured_media'=>9)));
+desk_assert(is_wp_error($save) && $writes===$GLOBALS['desk_writes'], 'Image writes require media permission.');
+$GLOBALS['desk_caps']['upload_files']=true;
+Lunara_Journal_Desk_API::register_rest_routes();
+desk_assert(isset($GLOBALS['desk_routes']['/journal/app/media']), 'Private media browsing and upload must be registered.');
+$GLOBALS['desk_caps']['manage_options']=false;
+desk_assert(is_wp_error(Lunara_Journal_Desk_API::rest_media(desk_request())), 'Non-admin editors must not browse or upload through the private media route.');
+$GLOBALS['desk_caps']['manage_options']=true;
+$nonce_request=desk_request(); $nonce_request->set_header('X-WP-Nonce','');
+desk_assert(is_wp_error(Lunara_Journal_Desk_API::rest_media($nonce_request)), 'Media requires the administrator REST nonce.');
+echo "Desk image safety contracts passed.\n";
+
+function wp_max_upload_size(){ return 10485760; }
+function wp_get_image_mime($path){ return $GLOBALS['desk_upload_mime'] ?? 'image/jpeg'; }
+function wp_strip_all_tags($value){ return strip_tags($value); }
+function rest_do_request($request){
+    $GLOBALS['desk_media_proxy']=$request;
+    $image=array('id'=>15,'mime_type'=>'image/jpeg','source_url'=>'https://example.com/new.jpg','title'=>array('raw'=>'A still'),'alt_text'=>'A scene','media_details'=>array('width'=>1600,'height'=>900,'sizes'=>array('medium'=>array('source_url'=>'https://example.com/thumb.jpg'))),'description'=>array('raw'=>'Private internal note'));
+    return new WP_REST_Response($request->get_method()==='POST' ? $image : array($image));
+}
+$media_request=desk_request(array(), 'GET');
+$media_request->set_param('page','2'); $media_request->set_param('search','new still');
+$result=Lunara_Journal_Desk_API::rest_media($media_request);
+$images=$result->get_data();
+desk_assert($images['images'][0]['id']===15 && $images['images'][0]['thumbnail']==='https://example.com/thumb.jpg' && $images['total_pages']===3, 'Media picker must return selectable images with pagination.');
+desk_assert(!isset($images['images'][0]['description']), 'Media picker must not leak private attachment notes.');
+desk_assert($GLOBALS['desk_media_proxy']->get_param('media_type')==='image' && $GLOBALS['desk_media_proxy']->get_param('context')==='edit' && $GLOBALS['desk_media_proxy']->get_param('page')===2, 'Media browsing must be bounded to image results with correct paging.');
+$media_request->set_param('search',array('bad'));
+desk_assert(is_wp_error(Lunara_Journal_Desk_API::rest_media($media_request)), 'Malformed image searches must be rejected.');
+$upload=desk_request(array('post'=>42,'status'=>'publish'));
+desk_assert(is_wp_error(Lunara_Journal_Desk_API::rest_media($upload)), 'Missing uploads must fail without creating media.');
+$upload->set_file_params(array('file'=>array('name'=>'still.jpg','tmp_name'=>'/tmp/upload','error'=>0,'size'=>11*1048576)));
+desk_assert(is_wp_error(Lunara_Journal_Desk_API::rest_media($upload)), 'Server upload limits must be enforced.');
+$upload->set_file_params(array('file'=>array('name'=>'still.jpg','tmp_name'=>'/tmp/upload','error'=>0,'size'=>1024)));
+$GLOBALS['desk_upload_mime']='text/html';
+desk_assert(is_wp_error(Lunara_Journal_Desk_API::rest_media($upload)), 'The actual file signature must be an image, regardless of its extension.');
+$GLOBALS['desk_upload_mime']='image/jpeg';
+$result=Lunara_Journal_Desk_API::rest_media($upload);
+desk_assert($result->get_data()['images'][0]['id']===15, 'Successful upload must return a selection without changing the draft.');
+desk_assert($GLOBALS['desk_media_proxy']->get_param('post')===null && $GLOBALS['desk_media_proxy']->get_param('status')===null && isset($GLOBALS['desk_media_proxy']->get_file_params()['file']), 'Uploads must forward only the file, never arbitrary post or status mutations.');
+echo "Desk media upload and paging contracts passed.\n";
