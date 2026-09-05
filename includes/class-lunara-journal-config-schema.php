@@ -199,8 +199,16 @@ final class Lunara_Journal_Config_Schema {
     }
 
     public static function sanitize_config( array $config ) {
+        // Editable lists replace prior/default lists, including an intentionally empty list.
+        // Recursive numeric merging would silently resurrect phrases the editor removed.
+        $voice_phrases = isset( $config['editorial']['voice']['banned_phrases'] ) && is_array( $config['editorial']['voice']['banned_phrases'] )
+            ? array_values( $config['editorial']['voice']['banned_phrases'] ) : null;
+        $skip_rules = isset( $config['editorial']['selection']['skip_rules'] ) && is_array( $config['editorial']['selection']['skip_rules'] )
+            ? array_values( $config['editorial']['selection']['skip_rules'] ) : null;
         $default = self::default_config();
         $config = self::deep_merge( $default, $config );
+        if ( null !== $voice_phrases ) { $config['editorial']['voice']['banned_phrases'] = $voice_phrases; }
+        if ( null !== $skip_rules ) { $config['editorial']['selection']['skip_rules'] = $skip_rules; }
 
         $config['protocol_version'] = Lunara_Journal_Protocol::VERSION;
         $config['schema_version']   = Lunara_Journal_Protocol::SCHEMA_VERSION;

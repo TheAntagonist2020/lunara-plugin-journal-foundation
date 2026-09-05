@@ -1,0 +1,27 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const file = require('node:path').join(__dirname, '../assets/desk/desk-state.js');
+test('the desk protects publish actions and draft-specific revisions', () => {
+  assert.ok(fs.existsSync(file), 'Journal Desk state module must exist');
+  const desk = require(file);
+  const base = { title:'Draft', content:'<p>Original</p>', excerpt:'Summary', seo:'SEO', deck:'Deck' };
+  assert.equal(desk.canPublish({dirty:true,valid:true,enabled:true,permitted:true,busy:false}), false);
+  assert.equal(desk.canPublish({dirty:false,valid:false,enabled:true,permitted:true,busy:false}), false);
+  assert.equal(desk.canPublish({dirty:false,valid:true,enabled:false,permitted:true,busy:false}), false);
+  assert.equal(desk.canPublish({dirty:false,valid:true,enabled:true,permitted:true,busy:false}), true);
+  assert.equal(desk.canPublish({dirty:false,awaitingReadback:true,valid:true,enabled:true,permitted:true,busy:false}), false);
+  assert.equal(desk.isDirty(base, {...base, seo:'Revised SEO'}), true);
+  assert.equal(desk.canApplyCandidate({draftId:10,input:base}, 11, base), false);
+  assert.equal(desk.canApplyCandidate({draftId:10,input:base}, 10, {...base,title:'Changed'}), false);
+  assert.equal(desk.canApplyCandidate({draftId:10,input:base}, 10, base), true);
+  assert.equal(desk.safeUrl('javascript:alert(1)'), '');
+  assert.equal(desk.safeUrl('https://example.com/story'), 'https://example.com/story');
+  assert.equal(desk.safeUrl('//example.com/story'), '');
+  assert.equal(desk.escapeHtml('<img onerror="x">'), '&lt;img onerror=&quot;x&quot;&gt;');
+  const body = desk.saveBody(base, 'revision-1');
+  assert.equal(body.expected_revision, 'revision-1');
+  assert.equal(body.acf.journal_seo_description, 'SEO');
+  assert.equal(Object.hasOwn(body, 'status'), false);
+  assert.equal(desk.visibleDrafts([{id:1,journal_status:'rejected'},{id:2,journal_status:'draft'}]).length,1);
+});
