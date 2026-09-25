@@ -140,6 +140,18 @@ foreach ( array( 'not json', '{"title":"Missing body"}', json_encode( array( 'ti
 $GLOBALS['rw_response'] = new WP_Error( 'http_request_failed', 'timeout with test-server-secret' );
 $error = call_user_func( $handler, $request );
 rw_assert( is_wp_error( $error ) && false === strpos( $error->get_error_message(), 'test-server-secret' ), 'Transport failures are actionable and redacted.' );
+$GLOBALS['rw_config']['dispatch']['provider'] = 'openai';
+$GLOBALS['rw_http'] = array();
+$GLOBALS['rw_response'] = rw_response( json_encode( $candidate ) );
+call_user_func( $handler, $request );
+$json_mode = json_decode( $GLOBALS['rw_http'][0][1]['body'], true );
+rw_assert( 'json_object' === ( $json_mode['text']['format']['type'] ?? '' ) && false !== stripos( $json_mode['input'], 'json' ), 'OpenAI JSON mode requires the word JSON in the input itself, not only in the instructions.' );
+$GLOBALS['rw_response'] = array( 'response' => array( 'code' => 400 ), 'body' => json_encode( array( 'error' => array( 'message' => "Response input messages must contain the word 'json' in some form. <b>Key</b> test-server-secret or sk-proj-abcdef123456 rejected.", 'type' => 'invalid_request_error' ) ) ) );
+$rejected = call_user_func( $handler, $request );
+rw_assert( 'lunara_rewrite_provider' === $rejected->get_error_code() && false !== strpos( $rejected->get_error_message(), "must contain the word 'json'" ), 'A rejected request reports the provider\'s own reason.' );
+rw_assert( false === strpos( $rejected->get_error_message(), 'test-server-secret' ) && false === strpos( $rejected->get_error_message(), 'sk-proj-abcdef' ) && false === strpos( $rejected->get_error_message(), '<b>' ), 'Provider reasons are redacted and tag-free.' );
+$GLOBALS['rw_response'] = array( 'response' => array( 'code' => 500 ), 'body' => 'upstream exploded' );
+rw_assert( false === strpos( call_user_func( $handler, $request )->get_error_message(), 'Provider said' ), 'A non-JSON error body adds no invented reason.' );
 $GLOBALS['rw_response'] = rw_response( 'provider-secret-detail', 401 );
 rw_assert( 'lunara_rewrite_auth' === call_user_func( $handler, $request )->get_error_code(), 'Credential rejection returns the actionable authentication error.' );
 unset( $GLOBALS['rw_options']['lunara_dispatch_openai_key'] );
