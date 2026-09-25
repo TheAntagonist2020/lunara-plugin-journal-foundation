@@ -4,11 +4,12 @@
   const H = window.LunaraDeskState;
   const e = H.escapeHtml;
   const root = document.getElementById('journal-desk');
-  const state = { view:'queue', mediaOpen:false, media:null, mediaPage:1, mediaSearch:'', desk:null, settings:null, workspace:null, draft:null, base:null, revision:'', awaitingReadback:false, candidate:null, undo:null, feedback:'', busy:'', notice:null, search:'', page:1, formDirty:false, settingsEdit:null, removedSources:[], online:navigator.onLine, poll:null };
+  const state = { view:'queue', mediaOpen:false, media:null, mediaPage:1, mediaSearch:'', desk:null, settings:null, workspace:null, draft:null, base:null, revision:'', awaitingReadback:false, candidate:null, undo:null, feedback:'', busy:'', notice:null, search:'', page:1, formDirty:false, settingsEdit:null, removedSources:[], online:navigator.onLine, poll:null, pitches:null, pitchMode:null, pitchUnavailable:'', pitchCalls:{}, pitchAngles:{}, pitchAngleOpen:{}, pitchHistory:false };
   let selectedRange = null;
   let deskRequest = 0;
   const icons = {
     queue:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    pitches:'<path d="M3 13h5l2 3h4l2-3h5"/><path d="M5.5 5h13L21 13v6H3v-6l2.5-8Z"/>',
     dispatch:'<path d="m13 2-9 12h7l-1 8 10-13h-7l1-7Z"/>',
     voice:'<path d="M5 8v8M10 4v16M15 7v10M20 10v4"/>',
     refresh:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/>',
@@ -59,13 +60,13 @@
   function announce(text){document.getElementById('announcements').textContent=text;}
   function notify(message,error,url){state.notice={message,error:!!error,url};announce(message);}
   function handleError(error){notify(error.message||'Something went wrong. Try again.',true);if(error.data&&error.data.validation&&state.workspace)state.workspace.validation=error.data.validation;}
-  function unsaved(){return dirty()||state.formDirty;}
+  function unsaved(){return dirty()||state.formDirty||H.pitchCallCount(state.pitchCalls)>0;}
   function leaveAllowed(){return !unsaved()||window.confirm('Leave without saving these changes?');}
   async function navigate(view){
     if(state.busy||!leaveAllowed())return;
-    state.mediaOpen=false;state.media=null;state.view=view;state.workspace=null;state.draft=null;state.candidate=null;state.undo=null;state.feedback='';state.formDirty=false;state.settingsEdit=null;state.removedSources=[];state.notice=null;
+    state.mediaOpen=false;state.media=null;state.view=view;state.workspace=null;state.draft=null;state.candidate=null;state.undo=null;state.feedback='';state.formDirty=false;state.settingsEdit=null;state.removedSources=[];state.notice=null;state.pitchCalls={};state.pitchAngles={};state.pitchAngleOpen={};
     render();window.scrollTo(0,0);
-    if(view==='queue')await loadDesk();else await loadSettings();
+    if(view==='queue')await loadDesk();else if(view==='pitches')await loadPitches();else await loadSettings();
   }
   async function loadDesk(silent){
     const request=++deskRequest;
@@ -195,6 +196,41 @@
     try{state.settings=await api('journal/app/settings',body);state.settingsEdit=clone(state.settings);state.formDirty=false;state.removedSources=[];notify(kind==='voice'?'Voice saved. Dispatch and revisions now use these instructions.':'Sources and story selection saved.');}
     catch(error){handleError(error);}finally{state.busy='';render();}
   }
+  // Pitches live in Lunara Dispatch (3.3.0+). The Desk reads and decides them
+  // over Dispatch's REST routes with this same WordPress session; nothing is
+  // written until a pitch is approved, and approval only ever makes a draft.
+  function pitchUnavailableMessage(error){
+    if(error&&error.code==='rest_no_route')return 'Pitches need Lunara Dispatch 3.3.0 or later. Update Dispatch in WordPress, then refresh.';
+    return error&&error.message||'Pitches could not be loaded.';
+  }
+  async function loadPitches(quiet){
+    if(!quiet){state.busy='pitches';render();}
+    try{const data=await api('dispatch/pitches');state.pitches=Array.isArray(data.pitches)?data.pitches:[];state.pitchMode=!!data.pitch_mode;state.pitchUnavailable='';}
+    catch(error){state.pitches=null;state.pitchUnavailable=pitchUnavailableMessage(error);}
+    finally{if(!quiet)state.busy='';render();}
+  }
+  async function sendPitchCalls(){
+    const pending=H.pendingPitches(state.pitches);
+    const body=H.pitchDecisionBody(pending,state.pitchCalls,state.pitchAngles);
+    if(state.busy||(!body.write.length&&!body.pass.length))return;
+    state.busy='pitch-send';render();
+    try{
+      const result=await api('dispatch/pitches/decide',body);
+      const parts=[];
+      if(result.approved)parts.push(result.approved+' going to the writer. The drafts arrive in your queue in a few minutes');
+      if(result.passed)parts.push(result.passed+' passed');
+      const writer=result.writer||{};
+      if(result.approved&&writer.queued===false&&!writer.running)parts.push('the writer did not start ('+(writer.message||'no reason given')+'); the next scheduled run will pick them up');
+      state.pitchCalls={};state.pitchAngles={};state.pitchAngleOpen={};
+      notify(parts.length?parts.join('. ')+'.':'Those pitches were already decided.');
+      await loadPitches(true);
+    }catch(error){handleError(error);}finally{state.busy='';render();}
+  }
+  async function setPitchMode(enabled){
+    if(state.busy)return;state.busy='pitch-mode';render();
+    try{const result=await api('dispatch/pitches/mode',{enabled:!!enabled});state.pitchMode=!!result.pitch_mode;notify(state.pitchMode?'Pitch mode is on. Dispatch will send its finds here and write nothing until you choose.':'Pitch mode is off. Dispatch writes drafts on its own again.');}
+    catch(error){handleError(error);}finally{state.busy='';render();}
+  }
   function header(title,eyebrow,description,actions){return '<div class="page-heading"><div><p class="eyebrow">'+e(eyebrow)+'</p><h1>'+e(title)+'</h1>'+(description?'<p class="muted">'+e(description)+'</p>':'')+'</div>'+(actions?'<div class="actions">'+actions+'</div>':'')+'</div>';}
   function notice(){return state.notice?'<div class="notice'+(state.notice.error?' error':'')+'" role="'+(state.notice.error?'alert':'status')+'"><div>'+e(state.notice.message)+(state.notice.url?link(state.notice.url,'View on LUNARA'):'')+'</div><button data-action="dismiss" aria-label="Dismiss message">×</button></div>':'';}
   function queueView(){
@@ -202,7 +238,7 @@
     let html=header('Draft queue','THE JOURNAL','Your next story starts here.',refresh);
     if(!state.desk)return html+'<div class="empty"><p>'+ (state.notice?'The queue could not be loaded. Use Refresh to try again.':'Loading your Journal drafts…')+'</p></div>';
     const d=state.desk.dispatch||{};const last=d.last_run||{};
-    html+='<div class="status-strip"><strong>'+(d.running?'Dispatch is drafting':d.manual_run_queued?'Dispatch is queued':d.enabled?'Dispatch is active':'Dispatch is paused')+'</strong><span>'+(last.timestamp_gmt?'Last run '+e(date(last.timestamp_gmt)):'No completed run recorded')+'</span><button class="link-btn" data-view="dispatch">Open Dispatch</button></div>';
+    html+='<div class="status-strip"><strong>'+(d.running?'Dispatch is drafting':d.manual_run_queued?'Dispatch is queued':d.enabled?'Dispatch is active':'Dispatch is paused')+'</strong><span>'+(last.timestamp_gmt?'Last run '+e(date(last.timestamp_gmt)):'No completed run recorded')+'</span>'+(H.pendingPitches(state.pitches).length?'<button class="link-btn" data-view="pitches">'+H.pendingPitches(state.pitches).length+' pitch'+(H.pendingPitches(state.pitches).length===1?'':'es')+' waiting</button>':'')+'<button class="link-btn" data-view="dispatch">Open Dispatch</button></div>';
     html+='<div class="queue-tools"><form id="search-form" class="search-form"><label for="draft-search" class="sr-only">Search drafts</label><input id="draft-search" name="search" type="search" placeholder="Find a draft…" value="'+e(state.search)+'"><button class="btn quiet" type="submit">Search</button></form><span class="muted small">'+e(state.desk.draft_count)+' stored drafts</span></div>';
     const drafts=H.visibleDrafts(state.desk.drafts);
     if(!drafts.length)html+='<div class="empty"><h2>No drafts on this page</h2><p class="muted">'+(state.search?'Try a different search.':'Dispatch can find the next story worth covering.')+'</p><button class="btn" data-action="run-dispatch"'+disabled()+'>Run Dispatch</button></div>';
@@ -230,6 +266,34 @@
     html+='<div class="review-footer"><div><p id="save-message" class="save-state'+(dirty()?' warn':'')+'">'+e(saveMessage())+'</p>'+(!publishState().enabled?link(config.settingsUrl,'Open publishing settings','small'):'')+'</div><div class="actions"><button id="save-button" class="btn" data-action="save"'+(!dirty()||state.busy?' disabled':'')+'>Save draft</button><button id="publish-button" class="btn primary" data-action="publish"'+(!H.canPublish(publishState())?' disabled':'')+'>Approve & Publish</button><button class="btn quiet danger reject" data-action="reject"'+disabled()+'>Reject story</button></div></div>';
     return html;
   }
+  const PITCH_STATUS={approved:'With the writer',written:'Drafted',passed:'Passed',skipped:'Dispatch skipped it'};
+  function pitchesView(){
+    const refresh='<button class="btn quiet" data-action="refresh-pitches"'+disabled()+'>'+icon('refresh',state.busy==='pitches')+'Refresh</button>';
+    let html=header('Pitches','THE NEXT STORY','Dispatch finds the stories. You decide which become drafts.',refresh);
+    if(state.pitchUnavailable)return html+'<div class="empty"><p>'+e(state.pitchUnavailable)+'</p></div>';
+    if(!state.pitches)return html+'<div class="empty"><p>Loading pitches…</p></div>';
+    const pending=H.pendingPitches(state.pitches);const history=state.pitches.filter(p=>p.status!=='pending');
+    const withWriter=history.filter(p=>p.status==='approved').length;
+    html+='<div class="status-strip"><strong>'+(state.pitchMode?'Pitch mode is on':'Pitch mode is off')+'</strong><span>'+(state.pitchMode?'Dispatch sends its finds here and writes only what you approve.':'Dispatch writes drafts straight from its sources.')+'</span><button class="link-btn" data-action="pitch-mode" data-enabled="'+(state.pitchMode?'0':'1')+'"'+disabled()+'>'+(state.pitchMode?'Turn off':'Turn on')+'</button></div>';
+    if(!pending.length){
+      html+='<div class="empty"><h2>No pitches waiting</h2><p class="muted">'+(state.pitchMode?'The next Dispatch run will file what it finds here.':'Turn on pitch mode and each Dispatch run will send its stories here first.')+(withWriter?' '+withWriter+' approved pitch'+(withWriter===1?' is':'es are')+' with the writer.':'')+'</p>'+(state.pitchMode?'<button class="btn" data-action="run-dispatch"'+disabled()+'>Run Dispatch</button>':'')+'</div>';
+    }else{
+      html+='<div class="pitch-list">'+pending.map(p=>{
+        const call=state.pitchCalls[p.id]||'';const id=e(p.id);const image=H.safeUrl(p.image_url);const when=date(p.published_at||p.created_at);
+        return '<article class="pitch-row'+(call?' '+call:'')+'">'+(image?'<img class="pitch-image" loading="lazy" src="'+e(image)+'" alt="">':'')+'<div class="pitch-body"><span class="draft-meta"><span class="eyebrow">'+e(p.source||'Source')+'</span>'+(when?'<span>'+e(when)+'</span>':'')+'</span>'+(H.safeUrl(p.url)?link(p.url,p.title||'Untitled story','pitch-title'):'<span class="pitch-title">'+e(p.title||'Untitled story')+'</span>')+(p.summary?'<p class="pitch-summary">'+e(p.summary)+'</p>':'')
+          +(state.pitchAngleOpen[p.id]?'<label class="label" for="angle-'+id+'">Your angle for the writer</label><textarea id="angle-'+id+'" data-pitch-angle-text="'+id+'" maxlength="600" placeholder="What’s the real story here?"'+disabled()+'>'+e(state.pitchAngles[p.id]||'')+'</textarea>':'')
+          +'<div class="actions pitch-actions"><button class="btn'+(call==='write'?' primary':'')+'" data-pitch-call="'+id+'" data-call="write" aria-pressed="'+(call==='write')+'"'+disabled()+'>Write it</button><button class="btn quiet'+(call==='pass'?' chosen':'')+'" data-pitch-call="'+id+'" data-call="pass" aria-pressed="'+(call==='pass')+'"'+disabled()+'>Pass</button><button class="link-btn small" data-pitch-angle="'+id+'"'+disabled()+'>'+(state.pitchAngles[p.id]?'Angle added':'Add angle')+'</button></div></div></article>';
+      }).join('')+'</div>';
+      const count=H.pitchCallCount(state.pitchCalls);const writes=Object.values(state.pitchCalls).filter(c=>c==='write').length;
+      html+='<div class="review-footer pitch-footer"><p class="save-state">'+(count?writes+' to write, '+(count-writes)+' to pass':pending.length+' waiting. Choose Write it or Pass.')+'</p><div class="actions"><button class="btn quiet" data-action="pass-rest"'+(state.busy||count===pending.length?' disabled':'')+'>Pass the rest</button><button class="btn primary" data-action="send-pitches"'+(state.busy||!count?' disabled':'')+'>'+(state.busy==='pitch-send'?'Sending…':'Send calls')+'</button></div></div>';
+    }
+    if(history.length){
+      html+='<div class="pitch-history"><button class="link-btn small" data-action="pitch-history">'+(state.pitchHistory?'Hide':'Show')+' recent calls ('+history.length+')</button>';
+      if(state.pitchHistory)html+='<ul class="source-list">'+history.slice(0,15).map(p=>'<li><span class="badge'+(p.status==='written'?' good':p.status==='approved'?' attention':'')+'">'+e(PITCH_STATUS[p.status]||p.status)+'</span> '+e(p.title)+(p.status==='written'&&p.post_ids&&p.post_ids.length?' <button class="link-btn small" data-draft="'+Number(p.post_ids[0])+'">Open draft</button>':'')+(p.note||p.angle?'<p>'+e(p.note||'Angle: '+p.angle)+'</p>':'')+'</li>').join('')+'</ul>';
+      html+='</div>';
+    }
+    return html;
+  }
   function voiceView(){
     let html=header('The Journal voice','EDITORIAL DIRECTION','The same instructions guide Dispatch and every proposed revision.');
     if(!state.settingsEdit)return html+'<p class="muted">Loading voice instructions…</p>';
@@ -249,8 +313,8 @@
   }
   function render(){
     const active=state.view==='review'?'queue':state.view;
-    const nav=[['queue','Queue'],['dispatch','Dispatch'],['voice','Voice']].map(([key,label])=>'<button type="button" role="tab" aria-selected="'+(active===key)+'" data-view="'+key+'"'+disabled()+'>'+icon(key)+'<span>'+label+'</span></button>').join('');
-    root.innerHTML='<div class="shell"><aside class="sidebar"><a class="brand" href="'+e(config.deskUrl)+'" aria-label="LUNARA Journal Desk"><span class="brand-name">LUNARA</span><span class="brand-sub">FILM</span></a><nav class="nav" aria-label="Journal Desk" role="tablist">'+nav+'</nav><div class="sidebar-footer"><p>Journal Desk</p><p>'+e(config.name)+'</p>'+link(config.siteUrl,'Visit LUNARA')+'</div></aside><div class="app-body"><header class="topbar"><span class="topbar-label">JOURNAL DESK</span><span class="private-label">'+icon('lock')+'Private workspace</span></header>'+(!state.online?'<div class="offline" role="status">You’re offline. Keep this window open to retain unsaved changes.</div>':'')+'<main id="main" class="main" aria-busy="'+!!state.busy+'">'+notice()+(state.view==='review'&&state.workspace?reviewView():state.view==='voice'?voiceView():state.view==='dispatch'?dispatchView():queueView())+'</main></div></div>';
+    const nav=[['queue','Queue'],['pitches','Pitches'],['dispatch','Dispatch'],['voice','Voice']].map(([key,label])=>'<button type="button" role="tab" aria-selected="'+(active===key)+'" data-view="'+key+'"'+disabled()+'>'+icon(key)+'<span>'+label+'</span></button>').join('');
+    root.innerHTML='<div class="shell"><aside class="sidebar"><a class="brand" href="'+e(config.deskUrl)+'" aria-label="LUNARA Journal Desk"><span class="brand-name">LUNARA</span><span class="brand-sub">FILM</span></a><nav class="nav" aria-label="Journal Desk" role="tablist">'+nav+'</nav><div class="sidebar-footer"><p>Journal Desk</p><p>'+e(config.name)+'</p>'+link(config.siteUrl,'Visit LUNARA')+'</div></aside><div class="app-body"><header class="topbar"><span class="topbar-label">JOURNAL DESK</span><span class="private-label">'+icon('lock')+'Private workspace</span></header>'+(!state.online?'<div class="offline" role="status">You’re offline. Keep this window open to retain unsaved changes.</div>':'')+'<main id="main" class="main" aria-busy="'+!!state.busy+'">'+notice()+(state.view==='review'&&state.workspace?reviewView():state.view==='pitches'?pitchesView():state.view==='voice'?voiceView():state.view==='dispatch'?dispatchView():queueView())+'</main></div></div>';
     updateActions();
   }
   root.addEventListener('click',async event=>{
@@ -258,6 +322,8 @@
     if(button.dataset.view){await navigate(button.dataset.view);return;}
     if(button.dataset.image){const item=state.media&&state.media.images.find(image=>image.id===Number(button.dataset.image));if(item)chooseImage(item);return;}
     if(button.dataset.mediaPage){await loadMedia(Number(button.dataset.mediaPage));return;}
+    if(button.dataset.pitchCall){const id=button.dataset.pitchCall;state.pitchCalls=H.togglePitchCall(state.pitchCalls,id,button.dataset.call);render();return;}
+    if(button.dataset.pitchAngle){const id=button.dataset.pitchAngle;state.pitchAngleOpen[id]=!state.pitchAngleOpen[id];if(!state.pitchCalls[id])state.pitchCalls=H.togglePitchCall(state.pitchCalls,id,'write');render();const box=document.getElementById('angle-'+id);if(box)box.focus();return;}
     if(button.dataset.draft){await openDraft(Number(button.dataset.draft));return;}
     if(button.dataset.page){state.page=Number(button.dataset.page);await loadDesk();return;}
     if(button.dataset.removeSource!==undefined){const i=Number(button.dataset.removeSource);const removed=state.settingsEdit.sources.splice(i,1)[0];if(removed.id)state.removedSources.push(removed.id);state.formDirty=true;render();return;}
@@ -283,6 +349,11 @@
       case 'discard-candidate':state.candidate=null;render();break;
       case 'undo':if(state.undo){state.draft=state.undo;state.undo=null;notify('Previous draft restored in the editor.');render();}break;
       case 'run-dispatch':await runDispatch();break;
+      case 'refresh-pitches':await loadPitches();break;
+      case 'send-pitches':await sendPitchCalls();break;
+      case 'pass-rest':state.pitchCalls=H.passRemaining(H.pendingPitches(state.pitches),state.pitchCalls);render();break;
+      case 'pitch-mode':await setPitchMode(button.dataset.enabled==='1');break;
+      case 'pitch-history':state.pitchHistory=!state.pitchHistory;render();break;
       case 'add-source':state.settingsEdit.sources.push({id:'',enabled:true,label:'',url:'',max:10,priority:5});state.formDirty=true;render();break;
     }
   });
@@ -298,6 +369,7 @@
     const el=event.target;
     if(el.dataset.field){state.draft[el.dataset.field]=el.value;updateActions();}
     if(el.id==='article-editor'){state.draft.content=safeHtml(el.innerHTML);updateActions();}
+    if(el.dataset.pitchAngleText){state.pitchAngles[el.dataset.pitchAngleText]=el.value;return;}
     if(el.id==='feedback'){state.feedback=el.value;const button=document.getElementById('remember-feedback');if(button)button.disabled=!el.value.trim()||!!state.busy;}
     if(el.dataset.voice){state.settingsEdit.voice[el.dataset.voice]=el.dataset.voice==='banned_phrases'?el.value.split('\n').map(s=>s.trim()).filter(Boolean):el.value;state.formDirty=true;}
     if(el.dataset.source!==undefined){state.settingsEdit.sources[Number(el.dataset.source)][el.dataset.key]=el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value;state.formDirty=true;}
@@ -315,5 +387,6 @@
   window.addEventListener('beforeunload',event=>{if(unsaved()||state.busy){event.preventDefault();event.returnValue='';}});
   window.addEventListener('online',()=>{state.online=true;render();});window.addEventListener('offline',()=>{state.online=false;render();});
   render();
+  loadPitches(true);
   Promise.all([loadDesk(),api('journal/app/settings').then(settings=>{state.settings=settings;state.settingsEdit=clone(settings);})]).then(()=>render()).catch(error=>{handleError(error);render();});
 })();

@@ -71,7 +71,7 @@ jobs:
         run: |
           node --check assets/desk/desk.js
           node --check assets/desk/desk-state.js
-          node --test tests/desk-state.test.cjs tests/desk-image-ui.test.cjs
+          node --test tests/desk-state.test.cjs tests/desk-image-ui.test.cjs tests/desk-pitches-ui.test.cjs
 
       - name: OpenAPI JSON syntax
         run: |

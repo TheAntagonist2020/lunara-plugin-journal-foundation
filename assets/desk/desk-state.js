@@ -37,5 +37,28 @@
     if (!/<a\s[^>]*href=/i.test(content || '')) flags.push('Check source attribution in the article. The source list below is kept separately.');
     return flags;
   }
-  return {chooseImage, escapeHtml, safeUrl, isDirty, canPublish, canApplyCandidate, fromWorkspace, saveBody, visibleDrafts, voiceFlags};
+  // Pitches (Lunara Dispatch 3.3.0 pitch gate): the Desk's decision state.
+  function pendingPitches(pitches) { return (pitches || []).filter(p => p && p.status === 'pending'); }
+  function togglePitchCall(calls, id, call) {
+    const next = {...calls};
+    if (next[id] === call) delete next[id]; else if (call === 'write' || call === 'pass') next[id] = call;
+    return next;
+  }
+  function passRemaining(pending, calls) {
+    const next = {...calls};
+    pending.forEach(p => { if (!next[p.id]) next[p.id] = 'pass'; });
+    return next;
+  }
+  function pitchCallCount(calls) { return Object.keys(calls || {}).length; }
+  function pitchDecisionBody(pending, calls, angles) {
+    const open = new Set(pending.map(p => p.id));
+    const write = [], pass = [], notes = {};
+    Object.keys(calls || {}).forEach(id => {
+      if (!open.has(id)) return;
+      if (calls[id] === 'write') { write.push(id); const note = String(angles && angles[id] || '').trim(); if (note) notes[id] = note.slice(0, 600); }
+      else if (calls[id] === 'pass') pass.push(id);
+    });
+    return {write, pass, angles: notes};
+  }
+  return {pendingPitches, togglePitchCall, passRemaining, pitchCallCount, pitchDecisionBody, chooseImage, escapeHtml, safeUrl, isDirty, canPublish, canApplyCandidate, fromWorkspace, saveBody, visibleDrafts, voiceFlags};
 });
