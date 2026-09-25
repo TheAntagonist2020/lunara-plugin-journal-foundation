@@ -46,3 +46,9 @@ The **Pitches** tab is the approval inbox for the Lunara Dispatch 3.3.0 pitch ga
 The Desk stores no pitch state. It calls Dispatch's own routes, `GET lunara/v1/dispatch/pitches`, `POST lunara/v1/dispatch/pitches/decide` and `POST lunara/v1/dispatch/pitches/mode`, with the administrator cookie session and REST nonce. Dispatch checks `edit_others_posts`. Deciding pitches never saves, rejects, or publishes a draft. On a Dispatch older than 3.3.0 the tab shows an update message and the queue is unaffected. The LUNARA Hub's Pitches panel reads the same Dispatch store, so a call made in either place shows up in both.
 
 Verification: `tests/desk-pitches-ui.test.cjs` covers the decision helpers (only open pitches are sent, angles are trimmed and attached only to Write it), the tab flow against mocked Dispatch routes (nonce, same-origin credentials, request body, list and history refresh, mode switch, no save or publish calls, unsafe image URLs dropped), and the older-Dispatch message. These tests do not replace a live check on the installed site with Dispatch 3.3.0.
+
+## Revision requests on OpenAI (1.3.3)
+
+**Propose a revision** uses OpenAI's JSON response mode. OpenAI rejects that mode with HTTP 400 unless the request *input* contains the word "JSON"; mentioning it only in the instructions is not enough. Before 1.3.3 every OpenAI revision failed with "HTTP 400". The input now opens with a one-line JSON reply instruction. Dispatch's own drafting was unaffected because it does not use JSON mode.
+
+Any other provider rejection now includes the provider's own reason, for example `(HTTP 400). Provider said: "…"`. The reason is capped at 240 characters, stripped of tags, and scrubbed of the stored key and anything shaped like an API key. Contract: `tests/desk-rewriter-runtime.php`.
