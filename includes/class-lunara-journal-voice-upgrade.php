@@ -18,6 +18,12 @@
  *
  * Each step is a normal new Control Plane version (actor "system"), so it shows
  * in version history and rolls back like any other change.
+ *
+ * Neither step runs until Lunara Dispatch 3.4.0 is active. Dispatch 3.3.0
+ * writes three approved pitches in one call (a one-entry run would settle
+ * the other two as written without a post) and would call Claude Opus 5
+ * with a 2,200-token ceiling and no stop-reason check. The two plugins
+ * deploy separately, so the order they go live in cannot be relied on.
  */
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -30,6 +36,7 @@ final class Lunara_Journal_Voice_Upgrade {
     const RELEASE       = '1.4.0';
     const CLAUDE_MODEL  = 'claude-opus-5';
     const CLAUDE_TOKENS = 16000;
+    const MIN_DISPATCH  = '3.4.0';
 
     public static function bootstrap() {
         // After the Control Plane has ensured a default version (init, 20).
@@ -55,6 +62,9 @@ final class Lunara_Journal_Voice_Upgrade {
      * @return array|false|WP_Error The steps applied, false when nothing was due, or the activation error.
      */
     public static function apply() {
+        if ( ! self::dispatch_ready() ) {
+            return false;
+        }
         $state = self::state();
         $steps = array();
         if ( empty( $state['voice'] ) ) {
@@ -126,6 +136,10 @@ final class Lunara_Journal_Voice_Upgrade {
         return $config;
     }
 
+    public static function dispatch_ready() {
+        return defined( 'LUNARA_DISPATCH_VERSION' ) && version_compare( (string) LUNARA_DISPATCH_VERSION, self::MIN_DISPATCH, '>=' );
+    }
+
     /**
      * Whether Dispatch can reach an Anthropic key. Only presence is checked;
      * the key itself is never read into this class.
@@ -156,6 +170,10 @@ final class Lunara_Journal_Voice_Upgrade {
             return;
         }
         $state = self::state();
+        if ( ! self::dispatch_ready() ) {
+            echo '<div class="notice notice-info"><p><strong>Journal voice:</strong> the new one-story voice and the switch to Claude start once Lunara Dispatch ' . esc_html( self::MIN_DISPATCH ) . ' is deployed.</p></div>';
+            return;
+        }
         if ( ! empty( $state['claude'] ) || self::claude_key_available() ) {
             return;
         }

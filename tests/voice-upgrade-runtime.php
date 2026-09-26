@@ -75,7 +75,14 @@ $GLOBALS['vu_options'][ Lunara_Journal_Config_Repository::OPTION_VERSIONS ] = ar
 ) );
 $GLOBALS['vu_options'][ Lunara_Journal_Config_Repository::OPTION_ACTIVE ] = 25;
 
-// 1. Nothing happens on a visitor's page view.
+// 0. Nothing happens until Dispatch 3.4.0 is active (3.3.0 batches three
+//     approved pitches and has no Claude stop-reason handling).
+vu_check( false === Lunara_Journal_Voice_Upgrade::dispatch_ready() && false === Lunara_Journal_Voice_Upgrade::maybe_apply(), 'The upgrade ran without Dispatch 3.4.0.' );
+vu_check( 25 === Lunara_Journal_Config_Repository::get_active_version_id(), 'The active version moved without Dispatch 3.4.0.' );
+define( 'LUNARA_DISPATCH_VERSION', '3.4.0' );
+vu_check( true === Lunara_Journal_Voice_Upgrade::dispatch_ready(), 'Dispatch 3.4.0 was not recognised.' );
+
+// 1. Nothing happens on a visitor's page view, even with Dispatch ready.
 $GLOBALS['vu_context'] = false;
 vu_check( false === Lunara_Journal_Voice_Upgrade::maybe_apply(), 'A front-end request ran the upgrade.' );
 vu_check( 25 === Lunara_Journal_Config_Repository::get_active_version_id(), 'A front-end request changed the active version.' );
