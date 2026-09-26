@@ -6,12 +6,34 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+// The default voice embeds Dalton's exemplars; loaded here so every consumer of the schema has them.
+require_once __DIR__ . '/class-lunara-journal-voice-exemplars.php';
+
 final class Lunara_Journal_Config_Schema {
     const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
     const MAX_OUTPUT_TOKENS    = 2200;
+    const DEFAULT_CLAUDE_MODEL = 'claude-opus-5';
+    // Claude's max_tokens covers its thinking as well as the entry, so the
+    // OpenAI cost cap would cut a Claude draft off mid-thought.
+    const CLAUDE_MAX_OUTPUT_TOKENS = 16000;
+
+    /**
+     * Voice lists an editor can shorten. A stored list replaces the default
+     * outright; recursive numeric merging would silently resurrect removed
+     * entries (or splice an old list onto the tail of a longer new one).
+     */
+    const VOICE_LISTS = array( 'banned_phrases', 'reader_value_test', 'principles', 'expertise_poison_phrases', 'structure', 'headline_rules', 'contrast_examples', 'drift_catalog', 'exemplars' );
 
     public static function allowed_openai_models() {
         return array( 'gpt-5.4-mini', 'gpt-5.4-nano' );
+    }
+
+    /**
+     * Output-token ceiling for a provider: Claude gets room to think and
+     * write one full entry; every other provider keeps the 2,200 cost cap.
+     */
+    public static function max_output_tokens_for( $provider ) {
+        return 'claude' === (string) $provider ? self::CLAUDE_MAX_OUTPUT_TOKENS : self::MAX_OUTPUT_TOKENS;
     }
 
     public static function default_config( array $legacy = array() ) {
@@ -87,11 +109,13 @@ final class Lunara_Journal_Config_Schema {
                         'the takeaway is simple',
                     ),
                     'structure' => array(
+                        'One story per entry, fully explored: 300 to 700 words. The Eggers example runs past 700 because every paragraph brings a new specific; go past 700 only when yours does too.',
                         'Hook, one or two sentences: what happened, stated with the angle already built in. A claim, not a neutral headline. Never open with "according to" unless attribution is the only honest way in.',
-                        'Context: why this matters, said the way a fan who knows the history would say it, not the way a briefing would.',
-                        'Specifics: cast, filmmaker, dates, the concrete decisions, with commentary woven through every fact. Never a data dump.',
-                        'The take: the read on the signal itself. What this tells you about the kind of movie they are trying to make and whether that is the right call.',
-                        'The landing: a final sentence the reader remembers. A claim, a warning, a joke with teeth, or the specific thing to watch. Never a summary, never a hedged prediction.',
+                        'Context, one or two paragraphs: the history, the trajectory, the pattern this fits, said the way a fan who knows the history would say it, not the way a briefing would.',
+                        'Specifics, one to three paragraphs: cast, filmmaker, dates, the concrete decisions, with commentary woven through every fact. Never a data dump.',
+                        'The take, one paragraph: the read on the signal itself. What this tells you about the kind of movie they are trying to make and whether that is the right call.',
+                        'The close, one or two sentences: a landing the reader remembers. A claim, a warning, a joke with teeth, or the specific thing to watch. Never a summary, never a hedged prediction.',
+                        'The engagement question, always, as the final beat. See LANDING AND CLOSE.',
                     ),
                     'headline_rules' => array(
                         '4 to 14 words. It frames the read; it does not repeat the lede.',
@@ -119,11 +143,12 @@ final class Lunara_Journal_Config_Schema {
                         'Paragraph one that restates the source and saves the opinion for paragraph three. Flip it: opinion first, facts in service of it.',
                         'A last sentence that is just another sentence. Every entry lands.',
                     ),
-                    'engagement_close' => 'The landing sentence is the close. Add one engagement question after it only when the entry has a genuine fork the reader could take the other side of: a question that implies a right answer while leaving a genuinely interesting wrong one. Expect that to be true for roughly one entry in three, not every entry. Never a poll, never "what do you think?", never a question manufactured because the entry needs an ending. If the landing sentence is the stronger close, stop there.',
+                    'engagement_close' => 'Every entry ends with one engagement question, after the landing sentence. It is always there, and it is the last thing the reader sees. It makes the reader pick a side on the specific tension the entry just laid out: tied to the angle, implying a right answer while leaving a genuinely interesting wrong one, and making the reader want to type a reply, not just nod. Not "What do you think about Avary\'s AI pivot?" but "Honest question: if the Paradise Lost footage actually looks incredible, does it matter how he got there?" Never a poll, never "what do you think?", never "let us know in the comments". If no real fork exists, the angle is not sharp enough yet: sharpen the angle, then ask.',
+                    'exemplars' => Lunara_Journal_Voice_Exemplars::defaults(),
                 ),
                 'selection' => array(
-                    'prefer_entries' => 2,
-                    'max_entries'    => 3,
+                    'prefer_entries' => 1,
+                    'max_entries'    => 1,
                     'minimum_words'  => 75,
                     'minimum_paragraphs' => 2,
                     'skip_marker'    => '<!-- LUNARA_SKIP: no reader-worthy items -->',
@@ -162,7 +187,7 @@ final class Lunara_Journal_Config_Schema {
                 'max_tokens'       => self::int_from_legacy( $legacy, 'lunara_dispatch_max_tokens', self::MAX_OUTPUT_TOKENS, 1024, self::MAX_OUTPUT_TOKENS ),
                 'models'           => array(
                     'openai' => self::sanitize_openai_model( self::string_from_legacy( $legacy, 'lunara_dispatch_openai_model', self::DEFAULT_OPENAI_MODEL ) ),
-                    'claude' => self::string_from_legacy( $legacy, 'lunara_dispatch_claude_model', 'claude-opus-4-5' ),
+                    'claude' => self::string_from_legacy( $legacy, 'lunara_dispatch_claude_model', self::DEFAULT_CLAUDE_MODEL ),
                     'gemini' => self::string_from_legacy( $legacy, 'lunara_dispatch_gemini_model', 'gemini-2.5-pro' ),
                     'grok'   => self::string_from_legacy( $legacy, 'lunara_dispatch_grok_model', 'grok-4' ),
                 ),
@@ -201,13 +226,20 @@ final class Lunara_Journal_Config_Schema {
     public static function sanitize_config( array $config ) {
         // Editable lists replace prior/default lists, including an intentionally empty list.
         // Recursive numeric merging would silently resurrect phrases the editor removed.
-        $voice_phrases = isset( $config['editorial']['voice']['banned_phrases'] ) && is_array( $config['editorial']['voice']['banned_phrases'] )
-            ? array_values( $config['editorial']['voice']['banned_phrases'] ) : null;
+        $voice_lists = array();
+        foreach ( self::VOICE_LISTS as $list ) {
+            if ( isset( $config['editorial']['voice'][ $list ] ) && is_array( $config['editorial']['voice'][ $list ] ) ) {
+                $voice_lists[ $list ] = array_values( $config['editorial']['voice'][ $list ] );
+            }
+        }
         $skip_rules = isset( $config['editorial']['selection']['skip_rules'] ) && is_array( $config['editorial']['selection']['skip_rules'] )
             ? array_values( $config['editorial']['selection']['skip_rules'] ) : null;
         $default = self::default_config();
         $config = self::deep_merge( $default, $config );
-        if ( null !== $voice_phrases ) { $config['editorial']['voice']['banned_phrases'] = $voice_phrases; }
+        foreach ( $voice_lists as $list => $values ) {
+            $config['editorial']['voice'][ $list ] = $values;
+        }
+        $config['editorial']['voice']['exemplars'] = Lunara_Journal_Voice_Exemplars::sanitize( $config['editorial']['voice']['exemplars'] ?? array() );
         if ( null !== $skip_rules ) { $config['editorial']['selection']['skip_rules'] = $skip_rules; }
 
         $config['protocol_version'] = Lunara_Journal_Protocol::VERSION;
@@ -216,7 +248,7 @@ final class Lunara_Journal_Config_Schema {
         $config['dispatch']['post_status']      = 'draft';
         $config['dispatch']['provider'] = self::sanitize_choice( $config['dispatch']['provider'], array( 'openai', 'claude', 'gemini', 'grok' ), 'openai' );
         $config['dispatch']['schedule'] = self::sanitize_choice( $config['dispatch']['schedule'], array( 'daily', 'twice_daily', 'every_4_hours', 'every_2_hours' ), 'daily' );
-        $config['dispatch']['max_tokens'] = max( 1024, min( self::MAX_OUTPUT_TOKENS, (int) $config['dispatch']['max_tokens'] ) );
+        $config['dispatch']['max_tokens'] = max( 1024, min( self::max_output_tokens_for( $config['dispatch']['provider'] ), (int) $config['dispatch']['max_tokens'] ) );
         if ( ! isset( $config['dispatch']['models'] ) || ! is_array( $config['dispatch']['models'] ) ) {
             $config['dispatch']['models'] = $default['dispatch']['models'];
         }

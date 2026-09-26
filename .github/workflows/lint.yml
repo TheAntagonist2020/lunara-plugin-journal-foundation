@@ -40,6 +40,9 @@ jobs:
       - name: Journal voice compiler runtime
         run: php tests/prompt-compiler-voice-runtime.php
 
+      - name: Voice upgrade runtime
+        run: php tests/voice-upgrade-runtime.php
+
       - name: Validator house-tells runtime
         run: php tests/validator-house-tells-runtime.php
 

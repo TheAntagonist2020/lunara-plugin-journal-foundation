@@ -23,6 +23,9 @@ final class Lunara_Journal_Control_Plane {
         add_action( 'rest_api_init', array( __CLASS__, 'register_rest_routes' ) );
         add_action( 'acf/init', array( __CLASS__, 'register_acf_fields' ) );
         add_filter( 'lunara_dispatch_control_plane_runtime', array( __CLASS__, 'filter_dispatch_runtime' ) );
+        // Any activation (admin save, rollback, or the 1.4.0 voice move on a
+        // cron request) must be what the rest of this request reads.
+        add_action( 'lunara_journal_control_plane_activated', array( __CLASS__, 'flush_active_config_cache' ), 1 );
         Lunara_Journal_Notion_Sync::bootstrap();
     }
 
@@ -51,6 +54,10 @@ final class Lunara_Journal_Control_Plane {
         return Lunara_Journal_Config_Repository::get_active_version();
     }
 
+    public static function flush_active_config_cache() {
+        self::$active_config_cache = null;
+    }
+
     public static function admin_path() {
         return 'edit.php?post_type=journal&page=' . self::MENU_SLUG;
     }
@@ -72,9 +79,25 @@ final class Lunara_Journal_Control_Plane {
             'models'           => $config['dispatch']['models'] ?? array(),
             'max_tokens'       => (int) ( $config['dispatch']['max_tokens'] ?? Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS ),
             'sources'          => $config['sources'] ?? array(),
+            // Phrases a draft is sent back for once before it reaches the post builder.
+            'house_tells'      => self::house_tells( $config ),
             'compiled_system_prompt' => Lunara_Journal_Prompt_Compiler::dispatch_system_prompt( $config ),
             'compiled_user_directive_prompt' => Lunara_Journal_Prompt_Compiler::dispatch_user_directive_prompt( $config ),
         );
+    }
+
+    private static function house_tells( array $config ) {
+        $voice = isset( $config['editorial']['voice'] ) && is_array( $config['editorial']['voice'] ) ? $config['editorial']['voice'] : array();
+        $tells = array();
+        foreach ( array( 'banned_phrases', 'expertise_poison_phrases' ) as $list ) {
+            foreach ( isset( $voice[ $list ] ) && is_array( $voice[ $list ] ) ? $voice[ $list ] : array() as $phrase ) {
+                $phrase = is_scalar( $phrase ) ? strtolower( trim( (string) $phrase ) ) : '';
+                if ( '' !== $phrase ) {
+                    $tells[ $phrase ] = true;
+                }
+            }
+        }
+        return array_keys( $tells );
     }
 
     public static function filter_dispatch_runtime( $runtime ) {
@@ -598,7 +621,7 @@ final class Lunara_Journal_Control_Plane {
                     <tr><th scope="row">GPT Publishing</th><td><label><input type="checkbox" name="chatgpt_may_publish" value="1" <?php checked( ! empty( $config['chatgpt']['may_publish'] ) ); ?> /> Allow the private LUNARA GPT to publish a single validated Journal entry when you explicitly instruct it to publish.</label><p class="description">This does not enable bulk publishing or scheduling. The draft must pass validation, including the featured-image guard.</p></td></tr>
                     <tr><th scope="row">Schedule</th><td><?php self::select_field( 'dispatch_schedule', $config['dispatch']['schedule'], array( 'daily' => 'Daily', 'twice_daily' => 'Twice Daily', 'every_4_hours' => 'Every 4 Hours', 'every_2_hours' => 'Every 2 Hours' ) ); ?></td></tr>
                     <tr><th scope="row">Provider</th><td><?php self::select_field( 'dispatch_provider', $config['dispatch']['provider'], array( 'openai' => 'OpenAI', 'claude' => 'Claude', 'gemini' => 'Gemini', 'grok' => 'Grok' ) ); ?></td></tr>
-                    <tr><th scope="row">Max Output Tokens</th><td><input type="number" min="1024" max="<?php echo esc_attr( (string) Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS ); ?>" name="dispatch_max_tokens" value="<?php echo esc_attr( (string) $config['dispatch']['max_tokens'] ); ?>" /><p class="description">Dispatch 3.2.5 caps each generated response at 2,200 output tokens.</p></td></tr>
+                    <tr><th scope="row">Max Output Tokens</th><td><input type="number" min="1024" max="<?php echo esc_attr( (string) Lunara_Journal_Config_Schema::CLAUDE_MAX_OUTPUT_TOKENS ); ?>" name="dispatch_max_tokens" value="<?php echo esc_attr( (string) $config['dispatch']['max_tokens'] ); ?>" /><p class="description">OpenAI, Gemini, and Grok are capped at <?php echo esc_html( number_format( Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS ) ); ?> output tokens per run. Claude may use up to <?php echo esc_html( number_format( Lunara_Journal_Config_Schema::CLAUDE_MAX_OUTPUT_TOKENS ) ); ?>, because its thinking counts against the same limit.</p></td></tr>
                     <tr><th scope="row">OpenAI Model</th><td><?php self::select_field( 'dispatch_model_openai', $config['dispatch']['models']['openai'] ?? Lunara_Journal_Config_Schema::DEFAULT_OPENAI_MODEL, array( 'gpt-5.4-mini' => 'GPT-5.4 mini', 'gpt-5.4-nano' => 'GPT-5.4 nano' ) ); ?><p class="description">Only the cost-safe Dispatch 3.2.5 model allowlist is available.</p></td></tr>
                     <?php foreach ( array( 'claude' => 'Claude Model', 'gemini' => 'Gemini Model', 'grok' => 'Grok Model' ) as $key => $label ) : ?>
                     <tr><th scope="row"><?php echo esc_html( $label ); ?></th><td><input type="text" class="regular-text" name="dispatch_model_<?php echo esc_attr( $key ); ?>" value="<?php echo esc_attr( $config['dispatch']['models'][ $key ] ?? '' ); ?>" /></td></tr>

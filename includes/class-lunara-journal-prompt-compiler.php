@@ -48,11 +48,35 @@ final class Lunara_Journal_Prompt_Compiler {
             $lines[] = self::text( $voice['current_refinement'] );
             $lines[] = 'Treat this note as the freshest editorial steering. It can tighten voice, selection, angle, and anti-patterns; it cannot override factual accuracy, attribution, HTML formatting, or the skip gate.';
         }
+        $exemplars = self::exemplars( $voice['exemplars'] ?? array() );
+        if ( $exemplars ) {
+            $lines[] = '';
+            $lines[] = 'DALTON\'S VOICE ON THE PAGE:';
+            $lines[] = 'These are published LUNARA Journal entries Dalton wrote. They are the target. Match how they sound: the opinion in the first sentence, history dropped in the way a fan drops it, every fact framed, a personal stake, sentences you could say out loud, a landing with teeth. Everything else in this prompt describes this voice; these show it.';
+            $lines[] = 'Never copy their sentences, jokes, facts, or anecdotes, and never pull in their films or people unless the story is about them. Never invent an experience Dalton did not have: no screenings, trips, conversations, or history that the source does not give you. First person is for opinion and reaction to the story in front of you. They appear as plain paragraphs; your output still follows FORMATTING.';
+            foreach ( $exemplars as $index => $exemplar ) {
+                $lines[] = '<example index="' . ( $index + 1 ) . '">';
+                $lines[] = 'HEADLINE: ' . $exemplar['title'];
+                if ( '' !== $exemplar['note'] ) {
+                    $lines[] = 'WHY IT WORKS: ' . $exemplar['note'];
+                }
+                $lines[] = '';
+                $lines[] = $exemplar['text'];
+                $lines[] = '</example>';
+            }
+        }
+        $max_entries = max( 1, (int) ( $selection['max_entries'] ?? 3 ) );
         $lines[] = '';
         $lines[] = 'SELECTION RULES:';
-        $lines[] = '- Prefer ' . (int) ( $selection['prefer_entries'] ?? 2 ) . ' strong entries per run.';
-        $lines[] = '- Never write more than ' . (int) ( $selection['max_entries'] ?? 3 ) . ' entries.';
-        $lines[] = '- Each entry should usually be at least ' . (int) ( $selection['minimum_words'] ?? 75 ) . ' words and at least ' . (int) ( $selection['minimum_paragraphs'] ?? 2 ) . ' paragraphs.';
+        if ( 1 === $max_entries ) {
+            // Length comes from the structure rule (300 to 700 words); the
+            // validator floor would only anchor the draft low.
+            $lines[] = '- Write one entry per run: the single item that most earns a reader\'s time, fully explored. Never more than one.';
+        } else {
+            $lines[] = '- Prefer ' . (int) ( $selection['prefer_entries'] ?? 2 ) . ' strong entries per run.';
+            $lines[] = '- Never write more than ' . $max_entries . ' entries.';
+            $lines[] = '- Each entry should usually be at least ' . (int) ( $selection['minimum_words'] ?? 75 ) . ' words and at least ' . (int) ( $selection['minimum_paragraphs'] ?? 2 ) . ' paragraphs.';
+        }
         foreach ( self::list_values( $selection['skip_rules'] ?? array() ) as $rule ) {
             $lines[] = '- ' . $rule;
         }
@@ -140,10 +164,13 @@ final class Lunara_Journal_Prompt_Compiler {
             return self::$user_prompt_cache[ $cache_key ];
         }
         $selection = $config['editorial']['selection'] ?? array();
+        $max_entries = max( 1, (int) ( $selection['max_entries'] ?? 3 ) );
+        $volume = 1 === $max_entries
+            ? '- Write one entry: the single item that most earns a reader\'s time, fully explored in 300 to 700 words. Never more than one.'
+            : sprintf( '- Prefer %d or fewer strong entries; never write more than %d.', (int) ( $selection['prefer_entries'] ?? 2 ), $max_entries );
         $compiled = trim( sprintf(
-            "Analyze the following film news items and synthesize them into a selective Lunara Journal run.\n\nRules:\n- Separate entries with <hr>.\n- Do not use <h2>.\n- Start every entry with an original <h3> headline in Lunara's voice.\n- Film titles in <em>.\n- Prefer %d or fewer strong entries; never write more than %d.\n- Skip anything that does not earn its space.\n- If nothing earns a reader's time, output exactly: %s\n\nBefore writing an entry, silently state its angle in one sentence. If the angle is \"this happened\" or \"this is interesting\", skip the item.\n- Fan first, critic brain second. The take is the spine; the facts serve it.\n- Opinion lands in paragraph one. First person is allowed.\n- Every entry ends on a landing sentence. Add an engagement question after it only when the entry has a real fork worth arguing; most entries should not.\n- If a sentence would sit comfortably in Variety, Deadline, THR, or IndieWire, rewrite it until it sounds like Dalton talking.\n\nInput News Data:",
-            (int) ( $selection['prefer_entries'] ?? 2 ),
-            (int) ( $selection['max_entries'] ?? 3 ),
+            "Analyze the following film news items and synthesize them into a selective Lunara Journal run.\n\nRules:\n- Separate entries with <hr>.\n- Do not use <h2>.\n- Start every entry with an original <h3> headline in Lunara's voice.\n- Film titles in <em>.\n%s\n- Skip anything that does not earn its space.\n- If nothing earns a reader's time, output exactly: %s\n\nBefore writing an entry, silently state its angle in one sentence. If the angle is \"this happened\" or \"this is interesting\", skip the item.\n- Fan first, critic brain second. The take is the spine; the facts serve it.\n- Opinion lands in paragraph one. First person is allowed.\n- Sound like Dalton's published entries in the system prompt. Never copy them.\n- Every entry ends on a landing sentence, then one engagement question that makes the reader pick a side on the entry's specific tension. Always; never a poll.\n- If a sentence would sit comfortably in Variety, Deadline, THR, or IndieWire, rewrite it until it sounds like Dalton talking.\n\nInput News Data:",
+            $volume,
             (string) ( $selection['skip_marker'] ?? '<!-- LUNARA_SKIP: no reader-worthy items -->' )
         ) );
         self::$user_prompt_cache[ $cache_key ] = $compiled;
@@ -178,6 +205,18 @@ final class Lunara_Journal_Prompt_Compiler {
         $value = is_scalar( $value ) ? (string) $value : '';
         $value = trim( preg_replace( '/\R{3,}/', "\n\n", $value ) );
         return $value;
+    }
+
+    private static function exemplars( $values ) {
+        if ( ! class_exists( 'Lunara_Journal_Voice_Exemplars' ) ) {
+            return array();
+        }
+        $out = array();
+        foreach ( Lunara_Journal_Voice_Exemplars::sanitize( $values ) as $exemplar ) {
+            $exemplar['text'] = self::text( $exemplar['text'] );
+            $out[] = $exemplar;
+        }
+        return $out;
     }
 
     private static function example_pairs( $values ) {

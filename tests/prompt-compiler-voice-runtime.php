@@ -8,6 +8,10 @@
  * holds the voice in the compiler, and holds it for stored configurations that
  * predate the new keys.
  *
+ * 1.4.0: every entry closes on an engagement question (Dalton's guide: "Always
+ * present. Goes last."), one story per run, and his own published entries are
+ * compiled in full as the voice target.
+ *
  * Run: php tests/prompt-compiler-voice-runtime.php
  */
 
@@ -38,6 +42,7 @@ $required_sections = array(
 	'DRIFT TO CATCH BEFORE OUTPUT:',
 	'CUT ON SIGHT.',
 	'LANDING AND CLOSE:',
+	"DALTON'S VOICE ON THE PAGE:",
 );
 $required_phrases = array(
 	'First person is allowed',
@@ -100,11 +105,39 @@ pv_assert( 1 === substr_count( $broken_prompt, 'Not this: ' ) && false === strpo
 
 /* 4. The user directive carries the per-entry close and the fan-first order. */
 $directive = Lunara_Journal_Prompt_Compiler::dispatch_user_directive_prompt( $default );
-pv_assert( false !== strpos( $directive, 'engagement question' ) && false !== strpos( $directive, 'only when' ), 'User directive must make the engagement question conditional on a real fork.' );
-pv_assert( false !== strpos( $prompt, 'only when the entry has a genuine fork' ) && false === strpos( $prompt, 'end every entry with one engagement question' ), 'Compiled close must make the engagement question conditional, not mandatory.' );
+pv_assert( false !== strpos( $directive, 'then one engagement question' ) && false !== strpos( $directive, 'Always; never a poll.' ), 'User directive must close every entry on an engagement question.' );
+pv_assert( false === strpos( $directive, 'most entries should not' ) && false === strpos( $prompt, 'roughly one entry in three' ), 'The old one-in-three question rule must be gone from both prompts.' );
+pv_assert( false !== strpos( $prompt, 'Every entry ends with one engagement question' ) && false !== strpos( $prompt, 'It is always there' ), 'Compiled close must make the engagement question mandatory.' );
+pv_assert( false !== strpos( $prompt, 'The engagement question, always, as the final beat.' ), 'Structure must end on the engagement question.' );
+pv_assert( false !== strpos( $prompt, '300 to 700 words' ) && false !== strpos( $directive, '300 to 700 words' ), 'Both prompts must carry the single-story length target.' );
+pv_assert( false !== strpos( $prompt, 'Write one entry per run' ) && false === strpos( $prompt, 'Prefer 1 strong entries' ), 'One-entry selection must read as one entry, not a plural preference.' );
+pv_assert( false !== strpos( $directive, 'Write one entry:' ) && false === strpos( $directive, 'Prefer 1 or fewer' ), 'One-entry directive must read as one entry.' );
+$multi = $default;
+$multi['config_version'] = 'test-multi';
+$multi['editorial']['selection']['prefer_entries'] = 2;
+$multi['editorial']['selection']['max_entries'] = 3;
+pv_assert( false !== strpos( Lunara_Journal_Prompt_Compiler::dispatch_system_prompt( $multi ), 'Never write more than 3 entries.' ) && false !== strpos( Lunara_Journal_Prompt_Compiler::dispatch_user_directive_prompt( $multi ), 'Prefer 2 or fewer strong entries; never write more than 3.' ), 'A multi-entry configuration keeps the plural rules.' );
 pv_assert( false !== strpos( $directive, 'Fan first, critic brain second' ), 'User directive must put the fan before the critic.' );
 pv_assert( false !== strpos( $directive, 'First person is allowed' ), 'User directive must permit first person.' );
 pv_assert( substr( rtrim( $directive ), -16 ) === 'Input News Data:', 'User directive must still end at the news-data boundary.' );
+
+/* 4b. Dalton's own entries are compiled in full, framed as the target, never as copy. */
+pv_assert( 2 === substr_count( $prompt, '<example index=' ) && 2 === substr_count( $prompt, '</example>' ), 'Both exemplars must compile as complete example blocks.' );
+pv_assert( false !== strpos( $prompt, 'HEADLINE: Robert Eggers Made a Werewolf Movie in Middle English and I Have Never Been More In' ) && false !== strpos( $prompt, 'HEADLINE: Paramount Let Street Fighter Be Unhinged. Thank God.' ), 'The Eggers and Street Fighter entries must be the exemplars.' );
+pv_assert( false !== strpos( $prompt, 'does it even matter as long as the dread lands?' ) && false !== strpos( $prompt, 'October 16. I\'ll be there.' ), 'Exemplars must compile in full, through their last line.' );
+pv_assert( false === strpos( $prompt, 'wp-video' ) && false === strpos( $prompt, 'Watch below' ) && false === strpos( $prompt, 'POST DETAILS' ) && false === strpos( $prompt, '&nbsp;' ), 'Page furniture must not reach the exemplars.' );
+pv_assert( false !== strpos( $prompt, 'Never copy their sentences' ) && false !== strpos( $prompt, 'Never invent an experience Dalton did not have' ), 'Exemplars must be framed as a voice target, never as copy or invented experience.' );
+pv_assert( strpos( $prompt, "DALTON'S VOICE ON THE PAGE:" ) < strpos( $prompt, 'SELECTION RULES:' ), 'The voice target must come before the mechanics.' );
+pv_assert( false !== strpos( $legacy_prompt, '<example index="1">' ), 'A stored configuration from before 1.4.0 must receive the exemplars.' );
+$custom = $default;
+$custom['config_version'] = 'test-custom-exemplar';
+$custom['editorial']['voice']['exemplars'] = array(
+	array( 'title' => 'Only One', 'text' => "<p>A <em>Film</em> with <strong>tags</strong> \xE2\x80\x94 and \xE2\x80\x9Csmart\xE2\x80\x9D quotes.</p><!-- internal -->" ),
+	array( 'title' => '', 'text' => 'Dropped: no title.' ),
+);
+$custom = Lunara_Journal_Config_Schema::sanitize_config( $custom );
+pv_assert( 1 === count( $custom['editorial']['voice']['exemplars'] ), 'An edited exemplar list replaces the default and drops malformed rows.' );
+pv_assert( 'A <em>Film</em> with tags -- and "smart" quotes.' === $custom['editorial']['voice']['exemplars'][0]['text'], 'Exemplar text keeps only <em>, drops comments, and folds to ASCII.' );
 
 /* 5. The ChatGPT editor instructions inherit the same voice. */
 $editor = Lunara_Journal_Prompt_Compiler::chatgpt_editor_instructions( $default );

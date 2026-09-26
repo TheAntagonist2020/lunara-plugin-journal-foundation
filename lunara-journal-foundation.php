@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LUNARA Journal Foundation
  * Description: Registers the LUNARA Journal content model, ACF fields, draft-first scope-gated bridge, authoritative Control Plane, and Fast Journal Desk for Dispatch and ChatGPT.
- * Version: 1.3.3
+ * Version: 1.4.0
  * Author: LUNARA FILM
  * Requires at least: 6.4
  * Requires PHP: 7.4
@@ -15,13 +15,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_VERSION' ) ) {
-    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.3.3' );
+    define( 'LUNARA_JOURNAL_FOUNDATION_VERSION', '1.4.0' );
 }
 if ( ! defined( 'LUNARA_JOURNAL_FOUNDATION_FILE' ) ) {
     define( 'LUNARA_JOURNAL_FOUNDATION_FILE', __FILE__ );
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-protocol.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-voice-exemplars.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-config-schema.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-migration.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-config-repository.php';
@@ -33,6 +34,7 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-ingest
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-notion-client.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-notion-sync.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-control-plane.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-voice-upgrade.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-site-studio.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-fast-desk.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-desk-api.php';
@@ -41,7 +43,7 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-desk-a
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-lunara-journal-automation.php';
 
 final class Lunara_Journal_Foundation {
-    const VERSION             = '1.3.3';
+    const VERSION             = '1.4.0';
     const POST_TYPE           = 'journal';
     const TAX_SECTION         = 'journal_section';
     const TAX_TOPIC           = 'journal_topic';
@@ -2995,6 +2997,7 @@ final class Lunara_Journal_Foundation {
 Lunara_Journal_Foundation::bootstrap();
 Lunara_Journal_Ingest::bootstrap();
 Lunara_Journal_Control_Plane::bootstrap();
+Lunara_Journal_Voice_Upgrade::bootstrap();
 Lunara_Journal_Site_Studio::bootstrap();
 Lunara_Journal_Fast_Desk::bootstrap();
 Lunara_Journal_Desk_API::bootstrap();

@@ -814,7 +814,7 @@ final class Lunara_Journal_Automation {
             'runtime'           => array(
                 'provider'          => $runtime_provider,
                 'model'             => $runtime_model,
-                'max_output_tokens' => isset( $runtime['max_tokens'] ) ? min( Lunara_Journal_Config_Schema::MAX_OUTPUT_TOKENS, absint( $runtime['max_tokens'] ) ) : 0,
+                'max_output_tokens' => isset( $runtime['max_tokens'] ) ? min( Lunara_Journal_Config_Schema::max_output_tokens_for( $runtime_provider ), absint( $runtime['max_tokens'] ) ) : 0,
                 'source_budget'     => $source_budget,
             ),
             'last_run'          => array(

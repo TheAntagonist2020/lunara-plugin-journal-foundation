@@ -4,6 +4,9 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 final class Lunara_Journal_Desk_Rewriter {
     const MAX_OUTPUT_TOKENS = 2200;
+    // Claude thinks before it answers and max_tokens covers both, so a
+    // 2,200-token ceiling would cut the JSON reply off mid-draft.
+    const CLAUDE_MAX_OUTPUT_TOKENS = 8000;
     const MAX_RESPONSE_BYTES = 131072;
 
     public static function bootstrap() {
@@ -95,7 +98,9 @@ final class Lunara_Journal_Desk_Rewriter {
         if ( strlen( $system ) + strlen( $user ) > 65000 ) {
             return self::error( 'input', 'The draft and source material exceed one rewrite request. Shorten the draft or instruction before retrying.', 413 );
         }
-        $tokens = max( 1024, min( self::MAX_OUTPUT_TOKENS, (int) ( $config['dispatch']['max_tokens'] ?? self::MAX_OUTPUT_TOKENS ) ) );
+        $tokens = 'claude' === $provider
+            ? self::CLAUDE_MAX_OUTPUT_TOKENS
+            : max( 1024, min( self::MAX_OUTPUT_TOKENS, (int) ( $config['dispatch']['max_tokens'] ?? self::MAX_OUTPUT_TOKENS ) ) );
         $text = self::generate( $provider, $model, $secret, $system, $user, $tokens );
         unset( $secret );
         if ( is_wp_error( $text ) ) { return $text; }
@@ -175,6 +180,14 @@ final class Lunara_Journal_Desk_Rewriter {
             $headers['x-api-key'] = $secret;
             $headers['anthropic-version'] = '2023-06-01';
             $body = array( 'model' => $model, 'max_tokens' => $tokens, 'system' => $system, 'messages' => array( array( 'role' => 'user', 'content' => $user ) ) );
+            if ( self::is_claude_5( $model ) ) {
+                // Someone is waiting on this preview, so low effort keeps it quick.
+                // A policy decline is re-run server-side on Anthropic's recommended model.
+                $body['thinking'] = array( 'type' => 'adaptive' );
+                $body['output_config'] = array( 'effort' => 'low' );
+                $body['fallbacks'] = 'default';
+                $headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+            }
         } elseif ( 'gemini' === $provider ) {
             $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode( $model ) . ':generateContent';
             $headers['x-goog-api-key'] = $secret;
@@ -184,7 +197,7 @@ final class Lunara_Journal_Desk_Rewriter {
             $headers['Authorization'] = 'Bearer ' . $secret;
             $body = array( 'model' => $model, 'max_tokens' => $tokens, 'messages' => array( array( 'role' => 'system', 'content' => $system ), array( 'role' => 'user', 'content' => $user ) ), 'response_format' => array( 'type' => 'json_object' ) );
         }
-        $response = wp_safe_remote_post( $endpoint, array( 'timeout' => 55, 'redirection' => 0, 'reject_unsafe_urls' => true, 'limit_response_size' => self::MAX_RESPONSE_BYTES, 'headers' => $headers, 'body' => wp_json_encode( $body ) ) );
+        $response = wp_safe_remote_post( $endpoint, array( 'timeout' => 'claude' === $provider ? 90 : 55, 'redirection' => 0, 'reject_unsafe_urls' => true, 'limit_response_size' => self::MAX_RESPONSE_BYTES, 'headers' => $headers, 'body' => wp_json_encode( $body ) ) );
         if ( is_wp_error( $response ) ) { return self::error( 'transport', 'The rewrite provider did not respond in time or could not be reached. Your draft is unchanged; retry when the connection recovers.', 502 ); }
         $status = (int) wp_remote_retrieve_response_code( $response );
         if ( 401 === $status || 403 === $status ) { return self::error( 'auth', 'The rewrite provider rejected the existing Dispatch credential. Check that provider in Journal Control Plane.', 502 ); }
@@ -203,6 +216,7 @@ final class Lunara_Journal_Desk_Rewriter {
                 }
             }
         } elseif ( 'claude' === $provider ) {
+            if ( 'refusal' === ( $parsed['stop_reason'] ?? '' ) ) { return self::error( 'refused', 'Claude declined to revise this draft. Your draft is unchanged; adjust the instruction and retry.', 502 ); }
             if ( ! in_array( $parsed['stop_reason'] ?? '', array( 'end_turn', 'stop_sequence' ), true ) ) { return self::error( 'incomplete', 'The rewrite did not finish. Try a shorter draft or instruction.', 502 ); }
             foreach ( (array) ( $parsed['content'] ?? array() ) as $block ) { if ( 'text' === ( $block['type'] ?? '' ) && is_string( $block['text'] ?? null ) ) { $text .= $block['text']; } }
         } elseif ( 'gemini' === $provider ) {
@@ -213,6 +227,11 @@ final class Lunara_Journal_Desk_Rewriter {
             $text = $parsed['choices'][0]['message']['content'] ?? '';
         }
         return is_string( $text ) && '' !== trim( $text ) ? $text : self::error( 'output', 'The provider returned no usable rewrite. Your draft is unchanged.', 502 );
+    }
+
+    /** Claude 5-family models take adaptive thinking, effort, and server-side fallbacks; older IDs keep the plain request. */
+    private static function is_claude_5( $model ) {
+        return 1 === preg_match( '/^claude-(?:opus|sonnet|fable|mythos)-5(?:[-.]|$)/', (string) $model );
     }
 
     private static function validate_candidate( $text, array $sources ) {

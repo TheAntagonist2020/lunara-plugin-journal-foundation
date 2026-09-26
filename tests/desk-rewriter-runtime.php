@@ -132,6 +132,28 @@ foreach ( $provider_fixtures as $provider => $fixture ) {
     $alternative = call_user_func( $handler, $request );
     rw_assert( ! is_wp_error( $alternative ) && $provider === $alternative['provider'] && $alternative['candidate']['title'] === $candidate['title'], 'The configured ' . $provider . ' provider yields a real validated candidate without switching provider.' );
 }
+// 1.4.0: a Claude 5-family model thinks before it answers, so it gets room to
+// think, low effort for an interactive preview, and server-side fallbacks. An
+// older Claude ID keeps the plain request it has always accepted.
+$GLOBALS['rw_config']['dispatch']['provider'] = 'claude';
+$GLOBALS['rw_config']['dispatch']['models']['claude'] = 'claude-opus-5';
+$GLOBALS['rw_http'] = array();
+$GLOBALS['rw_response'] = array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'model' => 'claude-opus-5', 'stop_reason' => 'end_turn', 'content' => array( array( 'type' => 'thinking', 'thinking' => '', 'signature' => 'x' ), array( 'type' => 'text', 'text' => json_encode( $candidate ) ) ) ) ) );
+$opus5 = call_user_func( $handler, $request );
+$claude_args = $GLOBALS['rw_http'][0][1];
+$claude_body = json_decode( $claude_args['body'], true );
+rw_assert( ! is_wp_error( $opus5 ) && $opus5['candidate']['title'] === $candidate['title'], 'A Claude Opus 5 revision reads only its text block, never its thinking.' );
+rw_assert( 'adaptive' === ( $claude_body['thinking']['type'] ?? '' ) && 'low' === ( $claude_body['output_config']['effort'] ?? '' ) && 'default' === ( $claude_body['fallbacks'] ?? '' ), 'Claude Opus 5 revisions use adaptive thinking, low effort, and default server-side fallbacks.' );
+rw_assert( 8000 === $claude_body['max_tokens'] && ! isset( $claude_body['temperature'] ) && ! isset( $claude_body['budget_tokens'] ), 'Claude revisions get room to think and send no sampling or budget parameters.' );
+rw_assert( 'server-side-fallback-2026-07-01' === ( $claude_args['headers']['anthropic-beta'] ?? '' ) && 90 === $claude_args['timeout'], 'The default-fallback beta header and a thinking-sized timeout go with it.' );
+$GLOBALS['rw_response'] = array( 'response' => array( 'code' => 200 ), 'body' => json_encode( array( 'stop_reason' => 'refusal', 'content' => array() ) ) );
+rw_assert( 'lunara_rewrite_refused' === call_user_func( $handler, $request )->get_error_code(), 'A refusal is reported as a refusal, not as an unfinished rewrite.' );
+$GLOBALS['rw_config']['dispatch']['models']['claude'] = 'claude-opus-4-5';
+$GLOBALS['rw_http'] = array();
+$GLOBALS['rw_response'] = array( 'response' => array( 'code' => 200 ), 'body' => json_encode( $provider_fixtures['claude'] ) );
+call_user_func( $handler, $request );
+$legacy_claude = json_decode( $GLOBALS['rw_http'][0][1]['body'], true );
+rw_assert( ! isset( $legacy_claude['thinking'] ) && ! isset( $legacy_claude['output_config'] ) && ! isset( $legacy_claude['fallbacks'] ) && ! isset( $GLOBALS['rw_http'][0][1]['headers']['anthropic-beta'] ), 'An older Claude model keeps the plain request.' );
 $GLOBALS['rw_config'] = $saved_config;
 foreach ( array( 'not json', '{"title":"Missing body"}', json_encode( array( 'title' => array(), 'content' => '<p>x</p>', 'excerpt' => 'x', 'seo_description' => 'x' ) ) ) as $text ) {
     $GLOBALS['rw_response'] = rw_response( $text );

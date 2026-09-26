@@ -1,8 +1,20 @@
 # LUNARA Journal Foundation
 
-Version: 1.3.3
+Version: 1.4.0
 
 The Foundation owns the `journal` content model, ACF fields, versioned WordPress Control Plane, draft-first scope-gated security, provenance, validation, and the Fast Journal Desk used by the private LUNARA GPT.
+
+## Dalton's voice, one story at a time (1.4.0)
+
+Journal drafts did not sound like Dalton. The writer was a small model (GPT-5.4 mini, reasoning off) producing up to three entries in one 2,200-token response, so each landed near 200 words; the prompt described the voice mostly through prohibitions and never showed it; the closing question was asked for in about one entry in three; and a banned phrase only raised a warning. 1.4.0 changes what the model is shown and asked for:
+
+- **Exemplars.** `editorial.voice.exemplars` holds Dalton's own published entries, compiled in full under *DALTON'S VOICE ON THE PAGE* as the target: *Robert Eggers Made a Werewolf Movie in Middle English and I Have Never Been More In* and *Paramount Let Street Fighter Be Unhinged. Thank God.* The prompt forbids copying their sentences, facts, or anecdotes and forbids inventing experiences Dalton did not have. Up to three exemplars; `<em>` only; folded to ASCII (`Lunara_Journal_Voice_Exemplars`).
+- **One story per run**, in his guide's Hook / Context / Specifics / Take / Close / Engagement Question shape at 300 to 700 words, with the engagement question on **every** entry. `minimum_words` stays the validator and Desk publish floor (75), so Dalton's own short pieces still publish.
+- **Claude.** `Lunara_Journal_Voice_Upgrade` moves the active Control Plane version once, as normal attributed versions (actor `system`): the voice step immediately on any provider, and, as soon as Dispatch has an Anthropic key, provider `claude` with `claude-opus-5` and 16,000 output tokens (Claude's thinking counts against the same limit; every other provider keeps the 2,200 cap). Each step runs once, under a lock, only in wp-admin, WP-Cron, or WP-CLI, and never undoes a later edit. Until the key exists, Journal screens show a notice pointing to Dispatch's Provider Credentials.
+- The Dispatch runtime now carries `house_tells` (banned plus cut-on-sight phrases) so Dispatch 3.4.0 can send a draft back once for revision, and every activation flushes the request's cached config.
+- Journal Desk revisions on a Claude 5-family model use adaptive thinking at low effort, default server-side fallbacks, 8,000 output tokens, and a 90-second timeout, and report a refusal as a refusal.
+
+Voice lists an editor can shorten (`structure`, `principles`, `exemplars`, and the rest in `Lunara_Journal_Config_Schema::VOICE_LISTS`) now replace the default whole instead of merging by index. Contracts: `tests/prompt-compiler-voice-runtime.php`, `tests/voice-upgrade-runtime.php`, `tests/desk-rewriter-runtime.php`.
 
 ## Journal voice lives in the compiler (1.2.14)
 
@@ -150,13 +162,13 @@ WordPress remains the authoritative runtime. The private GPT is the daily editor
 ## Install order
 
 1. Confirm Lunara Dispatch Automation 3.2.5 or newer is active. When upgrading an older paired stack, disable automated runs until Dispatch has been upgraded first.
-2. Replace the existing LUNARA Journal Foundation with version 1.3.3.
+2. Replace the existing LUNARA Journal Foundation with version 1.4.0.
 3. For production, update the private GPT Action schema using `openapi/lunara-journal-fast-desk.openapi.json`.
 4. For staging, use `openapi/lunara-journal-fast-desk.staging.openapi.json` and replace its staging host variable before importing it.
 5. Keep the current GPT instructions; the 1.2.13 automation routes are separate from the Journal Editor Action schema.
 6. Configure the GPT Action to use Bearer authentication. Existing scoped keys remain valid; reissue a key only if the installation still uses the retired legacy wildcard token.
 
-## Private Journal Desk app (1.3.3)
+## Private Journal Desk app (1.4.0)
 
 Open `/journal-desk/` with your existing WordPress administrator login to review drafts, propose revisions, adjust the Journal voice, manage sources, run Dispatch, and approve publication. Add it to your iPhone Home Screen for a standalone view. The same canonical voice powers Dispatch and rewrite proposals. Existing publication gates remain in force. See [Journal Desk installation and verification](docs/journal-desk-app.md).
 
